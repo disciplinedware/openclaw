@@ -288,15 +288,13 @@ describe("DebugOverlay", () => {
       // Accumulate history without refreshing the unrelated expanded sections.
       overlay.querySelector<HTMLButtonElement>('[aria-label="Minimize system busyness"]')!.click();
       await vitalUpdated();
-      for (let interval = 0; interval < 90; interval += 1) {
-        const nextSample = sampleCount + 1;
-        vi.advanceTimersByTime(10_000);
-        await waitForSolid(() => {
-          expect(
-            overlay.querySelector<TestSparkline>(".gateway-vital--cpu")?.samples.at(-1)?.value,
-          ).toBe(1 + nextSample / 10);
-        });
-      }
+      const lastSample = sampleCount + 90;
+      await vi.advanceTimersByTimeAsync(90 * 10_000);
+      await vitalUpdated();
+      expect(sampleCount).toBe(lastSample);
+      expect(
+        overlay.querySelector<TestSparkline>(".gateway-vital--cpu")?.samples.at(-1)?.value,
+      ).toBe(1 + lastSample / 10);
       overlay.querySelector<HTMLButtonElement>('[aria-label="Expand system busyness"]')!.click();
       await vitalUpdated();
 
