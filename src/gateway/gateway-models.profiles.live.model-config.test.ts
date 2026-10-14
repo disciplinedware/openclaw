@@ -1,37 +1,30 @@
-import {
-  normalizeModelCatalog,
-  normalizeModelCatalogProviderRows,
-} from "@openclaw/model-catalog-core/model-catalog-normalize";
-import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it } from "vitest";
-import manifest from "../../extensions/qwen/openclaw.plugin.json" with { type: "json" };
-import { modelFromStaticCatalogRow } from "../agents/embedded-agent-runner/model.static-catalog-row.js";
 import { OpenClawSchema } from "../config/zod-schema.js";
+import type { Model } from "../llm/types.js";
 import { toLiveModelConfig } from "./gateway-models.profiles.live.model-config.test-helpers.js";
-
-const catalog = expectDefined(
-  normalizeModelCatalog(manifest.modelCatalog, { ownedProviders: new Set(["qwen"]) }),
-  "Qwen catalog",
-);
-const providerCatalog = expectDefined(catalog.providers?.qwen, "Qwen provider catalog");
-const row = expectDefined(
-  normalizeModelCatalogProviderRows({ provider: "qwen", providerCatalog, source: "manifest" }).find(
-    (model) => model.id === "qwen3.5-plus",
-  ),
-  "Qwen static fallback row",
-);
 
 describe("toLiveModelConfig", () => {
   it.each([
-    undefined,
+    "",
     "https://coding-intl.dashscope.aliyuncs.com/v1",
     "https://coding.dashscope.aliyuncs.com/v1",
     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  ])("serializes Qwen catalog rows with endpoint %s into valid config", (baseUrl) => {
-    const model = modelFromStaticCatalogRow(row);
-    const modelConfig = toLiveModelConfig(baseUrl ? { ...model, baseUrl } : model);
-    const providerBaseUrl = baseUrl ?? "https://coding-intl.dashscope.aliyuncs.com/v1";
+  ])("serializes a runtime model with endpoint %s into valid config", (baseUrl) => {
+    const model: Model = {
+      id: "qwen3.5-plus",
+      name: "Qwen 3.5 Plus",
+      provider: "qwen",
+      api: "openai-completions",
+      baseUrl,
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 262_144,
+      maxTokens: 4096,
+    };
+    const modelConfig = toLiveModelConfig(model);
+    const providerBaseUrl = baseUrl || "https://coding-intl.dashscope.aliyuncs.com/v1";
     const config = {
       models: {
         providers: {
