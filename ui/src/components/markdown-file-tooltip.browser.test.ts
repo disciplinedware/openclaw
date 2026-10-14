@@ -123,6 +123,7 @@ describe("file path tooltip", () => {
         await page.elementLocator(anchor()).hover();
         await expect.poll(card).not.toBeNull();
         await expect.element(copyButton()).toBeVisible();
+        await expect.poll(card).not.toBeNull();
       }
       reject(new Error("Denied"));
       await new Promise<void>((resolve) => {
