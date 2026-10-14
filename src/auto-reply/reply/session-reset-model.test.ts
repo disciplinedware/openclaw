@@ -3,7 +3,6 @@ import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { prepareSharedAuthStoreOwnership } from "../../agents/auth-profiles/path-resolve.js";
 import { clearRuntimeAuthProfileStoreSnapshotCore } from "../../agents/auth-profiles/runtime-snapshots.js";
-import { updateAuthProfileStoreWithLock } from "../../agents/auth-profiles/store-runtime.js";
 import * as authStore from "../../agents/auth-profiles/store.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.js";
 import { buildModelAliasIndex } from "../../agents/model-selection-shared.js";
@@ -357,12 +356,10 @@ describe("applyResetModelOverride", () => {
       const profileId = "team:prod";
       await prepareSharedAuthStoreOwnership(state.env);
       const writeCredential = (provider: string) =>
-        updateAuthProfileStoreWithLock({
-          stateDir: state.stateDir,
-          saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
-          updater: (store) => {
-            store.profiles[profileId] = { type: "api_key", provider, key: "test" };
-            return true;
+        state.writeAuthProfiles({
+          version: 1,
+          profiles: {
+            [profileId]: { type: "api_key", provider, key: "test" },
           },
         });
       await writeCredential("minimax");
