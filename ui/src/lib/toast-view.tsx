@@ -14,9 +14,14 @@ export function ToastView(props: {
   transitionEnd(): void;
 }) {
   const anchor = createMemo(() => resolveToastAnchorRect(props.toast?.anchor));
+  const content = createMemo(() => props.toast?.message);
   const message = createMemo(() => {
-    const content = props.toast?.message;
-    return typeof content === "string" ? formatUiExternalText(content) : content;
+    const value = content();
+    if (typeof value === "string") {
+      return formatUiExternalText(value);
+    }
+    // Snapshot only on message changes: inserting a fragment consumes its children.
+    return value instanceof DocumentFragment ? Array.from(value.childNodes) : value;
   });
   return (
     <>

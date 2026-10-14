@@ -240,6 +240,22 @@ describe.skipIf(!hasBrowserLayout)("toast browser layout", () => {
         await waitForSolid(() => expect(host.querySelector(".app-toast__message a")).toBe(link));
         expect(document.activeElement).toBe(link);
         expect(action.getBoundingClientRect().height).toBeGreaterThanOrEqual(width < 768 ? 44 : 32);
+        const replacement = document.createDocumentFragment();
+        const replacementLink = document.createElement("a");
+        replacementLink.href = "#sidebar";
+        replacementLink.textContent = "Sidebar settings";
+        replacement.append("Another section hidden. ", replacementLink);
+        showToast({ ...host.toast!, message: replacement });
+        await waitForSolid(() => expect(replacementLink.isConnected).toBe(true));
+        expect(link.isConnected).toBe(false);
+        expect(message.textContent).toBe("Another section hidden. Sidebar settings");
+        expect(message.querySelector("a")).toBe(replacementLink);
+        replacementLink.focus();
+        host.toast = { ...host.toast! };
+        await waitForSolid(() =>
+          expect(host.querySelector(".app-toast__message a")).toBe(replacementLink),
+        );
+        expect(document.activeElement).toBe(replacementLink);
         host.remove();
         anchor.remove();
       }
