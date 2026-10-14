@@ -164,7 +164,7 @@ export async function promoteAuthProfileInOrder(params: {
   return updated === null ? err("lock-contention") : ok(updated);
 }
 
-/** @deprecated Use upsertAuthProfileAsync. Retained until an announced stable removal window. */
+/** @deprecated Use upsertAuthProfileAsync. Supported through 2026-12-31. */
 export function upsertAuthProfile(params: {
   profileId: string;
   credential: AuthProfileCredential;
@@ -695,6 +695,7 @@ export async function markAuthProfileSuccess(params: {
   store: AuthProfileStore;
   provider: string;
   profileId: string;
+  modelId?: string;
   agentDir?: string;
 }): Promise<void> {
   const { store, provider, profileId, agentDir } = params;
@@ -708,7 +709,12 @@ export async function markAuthProfileSuccess(params: {
     return;
   }
   const updated = await runAuthProfileUsage(async () => {
-    const reduction = { kind: "success" as const, expectedProfile: profile, lastUsed: Date.now() };
+    const reduction = {
+      kind: "success" as const,
+      expectedProfile: profile,
+      lastUsed: Date.now(),
+      modelId: params.modelId,
+    };
     if (isUserModelAuthProfileId(profileId)) {
       return preparePersonalAuthProfileUsage(store, profileId).record(reduction);
     }
