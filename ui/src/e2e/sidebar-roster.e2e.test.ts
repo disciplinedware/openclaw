@@ -310,18 +310,9 @@ suite.define(() => {
         const workspaceMenu = sidebar.locator(".sidebar-agent-menu");
         await page.mouse.move(1100, 700);
         await expect.poll(() => workspaceMenu.count()).toBe(0);
-        const tooltipShown = await sidebar.evaluateHandle((element) => ({
-          promise: new Promise<void>((resolve) => {
-            element.addEventListener("overlay-after-show", () => resolve(), { once: true });
-          }),
-        }));
-        try {
-          await workspace.focus();
-          await workspace.hover();
-          await tooltipShown.evaluate(({ promise }) => promise);
-        } finally {
-          await tooltipShown.dispose();
-        }
+        await workspace.focus();
+        await workspace.hover();
+        await expect.poll(() => workspaceMenu.getAttribute("data-phase")).toBe("open");
         expect(await workspace.evaluate((element) => element === document.activeElement)).toBe(
           true,
         );
