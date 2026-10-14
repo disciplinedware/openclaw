@@ -22,12 +22,13 @@ import type { ChatPageHost } from "./chat-state-host.ts";
 import { selectedChatSessionRow } from "./chat-state-route.ts";
 import { setChatRunOwner } from "./history-merge.ts";
 
-// Vite's jsdom asset URLs are not file URLs; preserve the actual SQL while using its asset loader.
+// mock-isolation: Vite's jsdom URLs are not file URLs; load the unchanged SQL as a raw asset.
 vi.mock("../../../../src/state/openclaw-agent-schema.js", async () => ({
   OPENCLAW_AGENT_SCHEMA_SQL: (await import("../../../../src/state/openclaw-agent-schema.sql?raw"))
     .default,
 }));
 
+// mock-isolation: The native loader requires a file URL; Vite supplies the same SQL as a raw asset.
 vi.mock("../../../../src/state/openclaw-state-schema.js", async () => ({
   OPENCLAW_STATE_SCHEMA_SQL: (await import("../../../../src/state/openclaw-state-schema.sql?raw"))
     .default,
