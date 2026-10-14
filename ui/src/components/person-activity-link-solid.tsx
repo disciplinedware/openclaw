@@ -39,7 +39,7 @@ export function PersonAvatarLink(props: { children: JSX.Element; link: ActivityL
   );
 }
 
-/** A standalone avatar supplies the link's accessible name and remains a tab stop. */
+/** A standalone avatar keeps its accessible name and keyboard navigation target. */
 export function StandalonePersonLink(props: { children: JSX.Element; link: ActivityLink }) {
   return (
     <Show when={props.link} fallback={props.children}>

@@ -15,12 +15,11 @@ import {
   type PersonActivityRouting,
 } from "../../../components/person-activity-link.ts";
 import { handlePeopleMenuKeydown } from "../../../components/searchable-people-menu.ts";
-import { renderSessionOwnerChip } from "../../../components/session-owner-chip.ts";
 import { Icon } from "../../../components/solid/icon.tsx";
+import { renderSessionOwnerChip } from "../../../components/solid/session-presentation.tsx";
 import { syncDropdownItemRadio } from "../../../components/web-awesome.ts";
 import { registerSessionPeopleEnglish } from "../../../i18n/locales/en-session-people.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
-import { LitContent } from "../../../lit/solid-content.tsx";
 
 registerEnglishCatalog(registerSessionPeopleEnglish);
 
@@ -261,14 +260,7 @@ function SharingContent(props: ChatSessionSharingProps) {
               <span class="chat-pane__sharing-member-icon" aria-hidden="true">
                 <Show when={person().type === "human"} fallback={<Icon name="bot" />}>
                   <PersonAvatarLink link={ownerActivity()}>
-                    <LitContent
-                      value={renderSessionOwnerChip(
-                        person(),
-                        "header",
-                        "owned",
-                        props.ownerViewing,
-                      )}
-                    />
+                    {renderSessionOwnerChip(person(), "header", "owned", props.ownerViewing)}
                   </PersonAvatarLink>
                 </Show>
               </span>
@@ -358,7 +350,7 @@ function SharingContent(props: ChatSessionSharingProps) {
                   >
                     <span slot="icon" class="chat-pane__sharing-member-icon" aria-hidden="true">
                       <Show when={identity().type === "human"} fallback={<Icon name="bot" />}>
-                        <LitContent value={renderSessionOwnerChip(identity(), "header")} />
+                        {renderSessionOwnerChip(identity(), "header")}
                       </Show>
                     </span>
                     <span
@@ -428,9 +420,7 @@ export function ChatSessionSharing(props: ChatSessionSharingProps & { inline?: b
                     person().label,
                   )}
                 >
-                  <LitContent
-                    value={renderSessionOwnerChip(person(), "header", "owned", props.ownerViewing)}
-                  />
+                  {renderSessionOwnerChip(person(), "header", "owned", props.ownerViewing)}
                 </StandalonePersonLink>
               )}
             </Show>
