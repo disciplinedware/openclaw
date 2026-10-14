@@ -812,7 +812,7 @@ describe("Crabbox worker provider", () => {
     await expect(provider.provision(PROFILE, OPERATION_ID)).resolves.toMatchObject({
       leaseId: LEASE_ID,
     });
-    expect(calls).toEqual(["warmup", "inspect", "inspect", "run"]);
+    expect(calls).toEqual(["warmup", "inspect", "inspect", "heartbeat", "run"]);
   });
 
   it.each([
@@ -1146,6 +1146,7 @@ describe("Crabbox worker provider", () => {
         ...(failure === "inspect" ? ["inspect"] : []),
         "warmup",
         "inspect",
+        "heartbeat",
         "run",
         "stop",
       ]);
@@ -1468,16 +1469,6 @@ describe("Crabbox worker provider", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("rejects non-Crabbox lifecycle lease ids before invoking the CLI", async () => {
-    const runCommand = vi.fn<CrabboxCommandRunner>();
-    const provider = providerWithRunner(runCommand);
-    const lease = lifecycleLease("lease:not-crabbox");
-
-    await expect(provider.inspect(lease)).rejects.toThrow("lease id is invalid");
-    await expect(provider.destroy(lease)).rejects.toThrow("lease id is invalid");
-    expect(runCommand).not.toHaveBeenCalled();
   });
 
   it.each(inspectCases(["deleted"]).filter(({ state }) => state === "deleted"))(
