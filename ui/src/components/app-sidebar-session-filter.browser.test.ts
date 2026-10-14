@@ -110,7 +110,9 @@ describe.runIf("__vitest_browser__" in globalThis)("sidebar session filter popov
       });
       const diagnostics: ReturnType<typeof snapshot>[] = [];
       const record = (event: string, occluded?: boolean) => {
-        if (diagnostics.length < 32) diagnostics.push(snapshot(event, occluded));
+        if (diagnostics.length < 32) {
+          diagnostics.push(snapshot(event, occluded));
+        }
       };
       const lifecycle = (event: Event) => {
         if (event.target instanceof Element && event.target.matches(surfaceSelector)) {
@@ -118,9 +120,13 @@ describe.runIf("__vitest_browser__" in globalThis)("sidebar session filter popov
         }
       };
       const events = ["overlay-show", "overlay-hide", "overlay-after-show", "overlay-after-hide"];
-      for (const event of events) document.addEventListener(event, lifecycle, true);
+      for (const event of events) {
+        document.addEventListener(event, lifecycle, true);
+      }
       onTestFinished(() => {
-        for (const event of events) document.removeEventListener(event, lifecycle, true);
+        for (const event of events) {
+          document.removeEventListener(event, lifecycle, true);
+        }
       });
       onTestFailed(() => {
         console.info(
