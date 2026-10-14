@@ -5070,5 +5070,9 @@
   {
     "source": "Cloud environment file",
     "target": "云环境文件"
+  },
+  {
+    "source": "Standalone builds",
+    "target": "独立可执行文件构建"
   }
 ]
