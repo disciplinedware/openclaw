@@ -471,6 +471,14 @@ baseline spent 7m57s on them in a 21m48s job. Separating them gives app compilat
 and tests their own 30-minute budget without removing coverage or increasing
 test-process parallelism.
 
+Full nonpublishing manual validation also stages the exact candidate runtime and runs
+ordinary bundled recovery and relaunch through two fresh `.app` test-host processes.
+The existing launcher owns their private home, Keychain, selected service, and process
+settlement. Both phase event streams are retained in `macos-bundled-recovery-proof`.
+Only this full-tier test phase has a 75-minute budget for the runtime build, staging,
+and native composition; ordinary tests and independent packages retain 30 minutes.
+The proof does not sign or publish an app.
+
 App tests run in three sequential launcher invocations: the default-profile suite,
 rendered Quick Chat in a fresh default-profile process, then named-profile fixtures.
 The rendered suite keeps its catalog, disclosure, and shortcut flows together and
@@ -730,6 +738,12 @@ of one, two, and four seconds, within the original 30-second request timeout.
 These retries exclude writes, caller cancellation, certificate errors, invalid
 JSON, oversized responses, and unrecognized errors. HTTP, connection, and
 response-body errors identify the request method and endpoint.
+
+GitHub can persistently fail a 100-job page of a CI attempt while smaller pages
+succeed. The review reads CI jobs at page sizes of 100, then 50, then 25. A size
+above 25 skips the server-error retries and immediately requests the same job
+range at half size. Pages at 25 jobs use the normal read retries, timeout, and
+recovery. Enumeration must still reach the reported job count.
 
 If a read-only request reaches its 30-second deadline, including while reading
 its response body, the script restarts the complete evaluation with fresh PR,

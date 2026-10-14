@@ -37,7 +37,6 @@ import { renderSessionLeadingState, SessionRowBadges } from "./solid/session-pre
 import "./theme-brand-icon.ts";
 
 export type AppSidebarRenderHost = AppSidebarSessionNavigationElement & {
-  teamOnlineExpanded: boolean;
   readonly nativeGatewaySnapshot: NativeGatewaysSnapshot | null;
   readonly people: import("./sidebar-people-controller.ts").SidebarPeopleController;
   renderPinnedSidebarSession(session: () => SidebarRecentSession): JSX.Element;
@@ -322,17 +321,17 @@ export function renderAppSidebarFooterBar(host: AppSidebarRenderHost): JSX.Eleme
               {(session) => (
                 <>
                   {
-                    renderSessionLeadingState(
-                      session(),
-                      undefined,
-                      "owned",
-                      undefined,
-                      undefined,
-                      false,
-                      <span class="nav-item__icon" aria-hidden="true">
-                        <Icon name="home" />
-                      </span>,
-                    ).leadingIndicator
+                    renderSessionLeadingState({
+                      get session() {
+                        return session();
+                      },
+                      attribution: "owned",
+                      icon: (
+                        <span class="nav-item__icon" aria-hidden="true">
+                          <Icon name="home" />
+                        </span>
+                      ),
+                    }).leadingIndicator
                   }
                   {
                     <SessionRowBadges
@@ -473,22 +472,17 @@ export function renderAppSidebarPluginTab(
     return isRouteId(route) ? route : null;
   });
   const location = createMemo(() => pluginTabLocation(tab(), host.basePath));
+  const iconName = createMemo(() => {
+    const icon = tab().icon;
+    return icon && Object.hasOwn(iconData, icon)
+      ? (icon as IconName) // SAFETY: The preceding own-key guard admits only keys of iconData.
+      : "plug";
+  });
   const link = renderSidebarNavLink({
     get href() {
       return `${location().pathname}${location().search}`;
     },
-    get icon() {
-      const icon = tab().icon;
-      return (
-        <Icon
-          name={
-            icon && Object.hasOwn(iconData, icon)
-              ? (icon as IconName) // SAFETY: The preceding own-key guard admits only keys of iconData.
-              : "plug"
-          }
-        />
-      );
-    },
+    icon: <Icon name={iconName()} />,
     get label() {
       return tab().label;
     },
