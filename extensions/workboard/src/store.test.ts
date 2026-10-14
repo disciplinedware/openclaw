@@ -1659,6 +1659,54 @@ describe("WorkboardStore", () => {
     await expect(store.linkCards(second.id, first.id)).rejects.toThrow(/cycle/);
   });
 
+  it("completes a card with its full 164-character execution run ID", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const runId = "r".repeat(164);
+    const card = await store.create({
+      title: "Complete long run ID",
+      status: "running",
+      execution: codexExecution("exec-long-run", 1_000, { runId }),
+    });
+
+    await store.complete(card.id, {
+      summary: "Verified.",
+      proof: { status: "passed", command: "test-command" },
+    });
+
+    expect(await store.get(card.id)).toMatchObject({
+      status: "done",
+      execution: { status: "done", runId },
+      events: [
+        ...(card.events ?? []),
+        expect.objectContaining({ kind: "moved", toStatus: "done" }),
+      ],
+      metadata: {
+        attempts: [expect.objectContaining({ status: "succeeded", runId })],
+        proof: [expect.objectContaining({ status: "passed", command: "test-command" })],
+        notifications: [expect.objectContaining({ kind: "completed", runId })],
+      },
+    });
+  });
+
+  it("leaves the card unchanged when completion notification validation fails", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const card = await store.create({
+      title: "Reject invalid notification",
+      status: "running",
+      execution: codexExecution("exec-invalid-notification", 1_000, {
+        sessionKey: "s".repeat(241),
+      }),
+    });
+
+    await expect(
+      store.complete(card.id, {
+        summary: "Must not be committed.",
+        proof: { status: "passed", command: "test-command" },
+      }),
+    ).rejects.toThrow("session key must be 240 characters or fewer (got 241).");
+    expect(await store.get(card.id)).toEqual(card);
+  });
+
   it("completes and blocks claimed cards with structured handoff metadata", async () => {
     const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({
