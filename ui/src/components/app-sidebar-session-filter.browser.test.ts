@@ -126,6 +126,8 @@ describe.runIf("__vitest_browser__" in globalThis)("sidebar session filter popov
         }
       };
       const owners = page.getByRole("button", { name: "Owners: All owners", exact: true });
+      // Keep a previous case's pointer from opening hover surfaces during keyboard navigation.
+      await page.elementLocator(document.body).hover({ position: { x: 0, y: 0 } });
       (owners.element() as HTMLElement).focus();
       await userEvent.keyboard("{Enter}");
       await expect
