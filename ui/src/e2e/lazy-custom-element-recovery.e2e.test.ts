@@ -5,7 +5,7 @@ import {
   type ControlUiFocusBuildTarget,
 } from "@openclaw/session-url-contract";
 import type { Page, Route, Video } from "playwright";
-import { beforeEach, expect, it, onTestFinished } from "vitest";
+import { beforeEach, expect, it } from "vitest";
 import { ConnectErrorDetailCodes } from "../../../packages/gateway-protocol/src/connect-error-details.js";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
@@ -891,12 +891,12 @@ suite.define(() => {
     );
   });
 
-  it("recovers the native titlebar visibly after its chunk fails", async () => {
+  it("recovers the native titlebar visibly after its chunk fails", async ({ onTestFinished }) => {
     let releaseProbe = () => {};
     const manualProbe = new Promise<void>((resolve) => {
       releaseProbe = resolve;
     });
-    onTestFinished(() => releaseProbe());
+    onTestFinished(releaseProbe);
     await suite.withPage(
       {
         locale: "en-US",
@@ -920,6 +920,7 @@ suite.define(() => {
         expect(response?.status()).toBe(200);
         await page.locator(".sidebar-rail").waitFor({ state: "attached" });
         const error = await expectRealChunkFailure(page, "openclaw-macos-titlebar-controls");
+        // Automatic recovery may probe again after its cooldown; keep success held until Retry.
         await expect.poll(failure.headCount).toBeGreaterThanOrEqual(1);
         expect(failure.chunkRequestCount()).toBe(1);
         if (railProofDir) {
