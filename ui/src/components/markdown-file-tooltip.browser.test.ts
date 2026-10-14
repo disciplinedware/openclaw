@@ -121,7 +121,6 @@ describe("file path tooltip", () => {
       await expect.poll(card).toBeNull();
       if (dismissal === "reopen") {
         await page.elementLocator(anchor()).hover();
-        await expect.poll(card).not.toBeNull();
         await expect.element(copyButton()).toBeVisible();
         await expect.poll(card).not.toBeNull();
       }

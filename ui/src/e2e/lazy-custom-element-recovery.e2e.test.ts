@@ -5,7 +5,7 @@ import {
   type ControlUiFocusBuildTarget,
 } from "@openclaw/session-url-contract";
 import type { Page, Route, Video } from "playwright";
-import { beforeEach, expect, it } from "vitest";
+import { beforeEach, expect, it, onTestFinished } from "vitest";
 import { ConnectErrorDetailCodes } from "../../../packages/gateway-protocol/src/connect-error-details.js";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
@@ -892,6 +892,11 @@ suite.define(() => {
   });
 
   it("recovers the native titlebar visibly after its chunk fails", async () => {
+    let releaseProbe = () => {};
+    const manualProbe = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+    onTestFinished(() => releaseProbe());
     await suite.withPage(
       {
         locale: "en-US",
@@ -904,6 +909,7 @@ suite.define(() => {
         const failure = await installChunkFailure(
           page,
           controlUiE2eBuiltModuleRequest(nativeTitlebarModule),
+          { manualProbe },
         );
         await installMockGateway(page, {
           featureMethods: ["chat.metadata", "chat.startup", "sessions.create"],
@@ -914,7 +920,7 @@ suite.define(() => {
         expect(response?.status()).toBe(200);
         await page.locator(".sidebar-rail").waitFor({ state: "attached" });
         const error = await expectRealChunkFailure(page, "openclaw-macos-titlebar-controls");
-        await expect.poll(failure.headCount).toBe(1);
+        await expect.poll(failure.headCount).toBeGreaterThanOrEqual(1);
         expect(failure.chunkRequestCount()).toBe(1);
         if (railProofDir) {
           await page.screenshot({
@@ -922,7 +928,10 @@ suite.define(() => {
           });
         }
 
-        await retryThroughReload(page, error);
+        const reloaded = page.waitForEvent("domcontentloaded");
+        await error.getByRole("button", { name: "Retry", exact: true }).click();
+        releaseProbe();
+        await reloaded;
         const toolbar = page.locator(".macos-titlebar-controls");
         await toolbar.waitFor({ state: "visible" });
         await page.locator(".sidebar-session-toolbar__collapse").click();
