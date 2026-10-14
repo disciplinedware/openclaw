@@ -11,6 +11,7 @@ import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PersistedWorkboardCard, WorkboardCardStore } from "./persistence-types.js";
 import { workboardSqliteBackendEntrypoint } from "./sqlite-backend-entrypoint.test-support.js";
+import { MAX_CARD_METADATA_BYTES, MAX_RUN_ID_LENGTH } from "./store-constants.js";
 import { WorkboardStore } from "./store.js";
 import { createWorkboardSqliteStores } from "./test/database-config.js";
 import { codexExecution } from "./test/execution.js";
@@ -1673,6 +1674,65 @@ describe("WorkboardStore", () => {
     const second = await store.create({ title: "Second", parents: [first.id] });
 
     await expect(store.linkCards(second.id, first.id)).rejects.toThrow(/cycle/);
+  });
+
+  it.each(["execution", "card"] as const)(
+    "rejects over-limit %s run IDs at admission without changing cards",
+    async (association) => {
+      const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+      const card = await store.create({ title: "Keep existing work", status: "running" });
+      const runId = "r".repeat(MAX_RUN_ID_LENGTH + 1);
+      const input =
+        association === "execution"
+          ? { execution: codexExecution("exec-too-long", 1_000, { runId }) }
+          : { runId };
+
+      await expect(store.create({ title: "Reject oversized identity", ...input })).rejects.toThrow(
+        "run id must be 512 characters or fewer (got 513).",
+      );
+      await expect(store.update(card.id, input)).rejects.toThrow(
+        "run id must be 512 characters or fewer (got 513).",
+      );
+      expect(await store.get(card.id)).toEqual(card);
+      expect((await store.list()).map((entry) => entry.id)).toEqual([card.id]);
+    },
+  );
+
+  it("emits completion for a max-length run ID when metadata must be trimmed", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const runId = "r".repeat(MAX_RUN_ID_LENGTH);
+    const card = await store.create({
+      title: "Retain completed event under metadata pressure",
+      status: "running",
+      execution: codexExecution("exec-max-run", 1_000, { runId }),
+      metadata: {
+        artifacts: Array.from({ length: 12 }, (_, index) => ({
+          id: `artifact-${index}`,
+          createdAt: index + 1,
+          url: `https://example.com/${index}/${"x".repeat(1900)}`,
+        })),
+      },
+    });
+    const subscription = await store.subscribeNotifications({ runId });
+    await store.complete(card.id, {
+      proof: { status: "passed", command: "test-command", note: "p".repeat(2000) },
+    });
+
+    const completed = await store.get(card.id);
+    expect(completed).toMatchObject({
+      status: "done",
+      execution: { runId },
+      metadata: { proof: [expect.objectContaining({ status: "passed", command: "test-command" })] },
+    });
+    expect(completed?.metadata?.artifacts?.length ?? 0).toBeLessThan(
+      card.metadata?.artifacts?.length ?? 0,
+    );
+    expect(Buffer.byteLength(JSON.stringify(completed?.metadata), "utf8")).toBeLessThanOrEqual(
+      MAX_CARD_METADATA_BYTES,
+    );
+    expect(await store.notificationEvents({ subscriptionId: subscription.id })).toMatchObject({
+      events: [expect.objectContaining({ kind: "completed", runId })],
+    });
   });
 
   it("completes a card with its full 164-character execution run ID", async () => {
