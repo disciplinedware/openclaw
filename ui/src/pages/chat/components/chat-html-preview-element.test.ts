@@ -472,9 +472,9 @@ describe("ordinary HTML preview transport", () => {
       .mockRejectedValueOnce(new Error("Preview denied"))
       .mockResolvedValue(metadata);
     const { view } = mount(request);
-    await expect
-      .poll(() => view.querySelector('[role="alert"]')?.textContent)
-      .toContain("Preview denied");
+    await waitForSolid(() => {
+      expect(view.querySelector('[role="alert"]')?.textContent).toContain("Preview denied");
+    });
     view.title += " ";
     await view.updateComplete;
     expect(request).toHaveBeenCalledOnce();
