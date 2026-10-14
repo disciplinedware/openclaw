@@ -529,6 +529,7 @@ suite.define(() => {
                   return { sessionId: current?.sessionId, tokens: current?.usage?.totalTokens };
                 })
                 .toEqual({ sessionId: replacementId, tokens: pointCount * 300 });
+              const focusOverviewStart = observedOverviews.length;
 
               // Keep the real connection active while aging the browser's five-minute focus TTL.
               const browserNow = await page.evaluate(() => Date.now());
@@ -552,6 +553,13 @@ suite.define(() => {
               expect(await selectedReplacement.getAttribute("aria-label")).toBe(
                 "Replacement usage session",
               );
+              await expect
+                .poll(() =>
+                  observedOverviews
+                    .slice(focusOverviewStart)
+                    .some((overview) => overview.session?.sessionId === replacementId),
+                )
+                .toBe(true);
               expect(connections).toBe(selectedConnections);
               if (pointCount === 2) {
                 await moveOriginalRange();
@@ -585,7 +593,7 @@ suite.define(() => {
                         label: await selectedReplacement.getAttribute("aria-label"),
                       },
                       initialOverview,
-                      observedOverviews,
+                      focusOverviews: observedOverviews.slice(focusOverviewStart),
                       selectedConnections,
                       connections,
                       ...(await readDetails()),
