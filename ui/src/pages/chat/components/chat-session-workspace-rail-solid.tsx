@@ -252,8 +252,6 @@ function WorkspaceContents(props: { workspace: SessionWorkspaceProps }) {
               <Show when={props.workspace.onDownloadFile}>
                 {(download) => (
                   <FileDownloadButton
-                    filename={file().name}
-                    size={file().size}
                     scopeKey={[
                       props.workspace.sessionKey,
                       file().path,
@@ -443,8 +441,6 @@ function WorkspaceContents(props: { workspace: SessionWorkspaceProps }) {
                             <Show when={!directory() && props.workspace.onDownloadFile}>
                               {(download) => (
                                 <FileDownloadButton
-                                  filename={entry().name}
-                                  size={entry().size}
                                   scopeKey={[
                                     props.workspace.sessionKey,
                                     entry().path,

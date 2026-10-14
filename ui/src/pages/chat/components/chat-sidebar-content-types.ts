@@ -1,4 +1,5 @@
 import type { ChatMessageGetResult } from "../../../../../packages/gateway-protocol/src/schema/logs-chat.js";
+import type { SessionFileDownload } from "../../../api/session-file-download.ts";
 import type { ImageLightboxItem } from "../../../components/image-lightbox.types.ts";
 import type { MarkdownFileLinkTarget } from "../../../components/markdown-file-links.ts";
 import type { MarkdownGitHubContext } from "../../../components/markdown-render-options.ts";
@@ -34,8 +35,7 @@ type MarkdownSidebarContent = {
   fileDownload?: {
     path: string;
     name: string;
-    size?: number;
-    download: (signal: AbortSignal) => Promise<Blob | null>;
+    download: (signal: AbortSignal) => Promise<SessionFileDownload | null>;
   };
 };
 
@@ -133,9 +133,8 @@ export type FileSidebarContent = {
   kind: "file";
   path: string;
   name: string;
-  size?: number;
   content: string;
-  download?: (signal: AbortSignal) => Promise<Blob | null>;
+  download?: (signal: AbortSignal) => Promise<SessionFileDownload | null>;
   sessionFileSource?: SessionFileSource;
   /** Stable per-session identity used to retain an unsaved in-memory draft. */
   draftKey?: string;

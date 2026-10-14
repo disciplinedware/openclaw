@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import { ServerResponse } from "node:http";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { expect, vi } from "vitest";
+import { afterAll, expect, vi } from "vitest";
+import { reserveTestPortListener } from "../../test-utils/port-claims.js";
 import { handleArtifactDownloadHttpRequest } from "../artifact-downloads.js";
-import { createGatewayRequest } from "../hooks-test-helpers.js";
 import type {
   GatewayClient,
   GatewayRequestHandlerOptions,
@@ -85,20 +85,51 @@ export function createSessionFileDownloadClient() {
   return { client, [Symbol.dispose]: () => controller.abort() };
 }
 
+const downloadClients = new Set<GatewayClient>();
+let downloadServer:
+  | ReturnType<typeof reserveTestPortListener<ReturnType<typeof createServer>>>
+  | undefined;
+afterAll(async () => {
+  if (downloadServer) {
+    const server = await downloadServer;
+    server.listener.closeAllConnections();
+    await server.releaseListener();
+    await server.claim.release();
+  }
+});
+
+export async function openSessionFileDownload(
+  client: GatewayClient,
+  url: string,
+  init?: RequestInit,
+) {
+  downloadClients.clear();
+  downloadClients.add(client);
+  downloadServer ??= reserveTestPortListener({
+    offsets: [0],
+    createListener: () =>
+      createServer((req, res) => {
+        void handleArtifactDownloadHttpRequest(req, res, {
+          clients: downloadClients,
+          basePath: "",
+        });
+      }),
+  });
+  const { claim } = await downloadServer;
+  return fetch("http://127.0.0.1:" + claim.port + url, init);
+}
+
 export async function fetchSessionFileDownload(
   client: GatewayClient,
   url: string,
   method = "GET",
   headers?: Record<string, string>,
 ) {
-  const request = createGatewayRequest({ path: url, method, headers });
-  const response = new ServerResponse(request);
-  const end = vi.spyOn(response, "end").mockReturnValue(response);
-  await handleArtifactDownloadHttpRequest(request, response, {
-    clients: new Set([client]),
-    basePath: "",
-  });
-  return { response, body: end.mock.calls[0]?.[0] };
+  const result = await openSessionFileDownload(client, url, { method, headers });
+  return {
+    response: { statusCode: result.status, getHeader: (name: string) => result.headers.get(name) },
+    body: method === "HEAD" ? undefined : new Uint8Array(await result.arrayBuffer()),
+  };
 }
 
 export function expectOkPayload(calls: ResponderCall[]): Record<string, any> {

@@ -576,8 +576,6 @@ export function SidebarPanel(props: SidebarPanelProps) {
                           </div>
                           <div class="sidebar-file-view__actions">
                             <FileDownloadButton
-                              filename={file().name}
-                              size={file().size}
                               scopeKey={[
                                 content().fileLinkSessionKey,
                                 file().path,

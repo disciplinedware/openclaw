@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
 import { runGitBuffered } from "../../agents/worktrees/git.js";
 import { ownedWorkerBytes } from "../../infra/worker-transfer-bytes.js";
-import {
-  WORKSPACE_PREVIEW_MAX_BYTES,
-  WORKSPACE_DOWNLOAD_MAX_BYTES,
-} from "../workspace-file-limits.js";
+import { WORKSPACE_PREVIEW_MAX_BYTES } from "../workspace-file-limits.js";
 import { parseChangedWorkspaceResult } from "./workspace-manifest-comparison.js";
 import {
   MAX_RECONCILIATION_FILE_BYTES,
@@ -234,15 +231,10 @@ export async function collectStagedWorkerArtifacts(
         deletions: 0,
       })),
   ].toSorted((left, right) => left.path.localeCompare(right.path));
-  const selected = snapshot.changedEntries.find(
-    (entry) => entry.path === (input.downloadPath ?? input.previewPath),
-  );
+  const selected = snapshot.changedEntries.find((entry) => entry.path === input.previewPath);
+  const download = snapshot.changedEntries.find((entry) => entry.path === input.downloadPath);
   const preview =
-    selected?.type === "file" &&
-    selected.size <=
-      (input.downloadPath === undefined
-        ? WORKSPACE_PREVIEW_MAX_BYTES
-        : WORKSPACE_DOWNLOAD_MAX_BYTES)
+    selected?.type === "file" && selected.size <= WORKSPACE_PREVIEW_MAX_BYTES
       ? await readStagedWorkerWorkspaceEntries({
           root: input.root,
           entries: [resolveStagedWorkspaceReadEntry(snapshot.objectsByPath, selected)],
@@ -256,5 +248,8 @@ export async function collectStagedWorkerArtifacts(
     changedEntries: snapshot.changedEntries,
     changes,
     ...(preview === undefined ? {} : { preview: ownedWorkerBytes(preview) }),
+    ...(download?.type === "file"
+      ? { downloadObjectId: snapshot.objectsByPath.get(download.path)!.objectId }
+      : {}),
   };
 }

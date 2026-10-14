@@ -6,7 +6,10 @@ import {
 } from "../../../../../src/shared/markdown-code.js";
 import { downloadArtifact, isHttpArtifactDownloadUrl } from "../../../api/artifact-download.ts";
 import { GatewayRequestError } from "../../../api/gateway.ts";
-import { downloadSessionFile } from "../../../api/session-file-download.ts";
+import {
+  downloadSessionFile,
+  type SessionFileDownload,
+} from "../../../api/session-file-download.ts";
 import type { ArtifactDownloadResult, SessionWorkspaceGetResult } from "../../../api/types.ts";
 import { hasOperatorAdminAccess } from "../../../app/operator-access.ts";
 import type { MarkdownFileLinkTarget } from "../../../components/markdown-file-links.ts";
@@ -67,7 +70,7 @@ function formatFileUpdatedAt(updatedAtMs: number | undefined): string | null {
 function unsupportedFileSidebarContent(
   file: SessionWorkspaceGetResult["file"],
   fallbackPath: string,
-  download: (signal: AbortSignal) => Promise<Blob | null>,
+  download: (signal: AbortSignal) => Promise<SessionFileDownload | null>,
 ): SidebarContent {
   const filePath = file.workspacePath || file.path || fallbackPath;
   const updatedAt = formatFileUpdatedAt(file.updatedAtMs);
@@ -87,7 +90,6 @@ function unsupportedFileSidebarContent(
     fileDownload: {
       path: filePath,
       name: file.name || pathDisplayName(filePath),
-      size: file.size,
       download,
     },
   };
@@ -346,7 +348,6 @@ function openFile(
         kind: "file",
         path: filePath,
         name,
-        size: file.size,
         content: text,
         download,
         sessionFileSource: {

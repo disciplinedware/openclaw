@@ -1,9 +1,8 @@
 import { createSignal, onCleanup } from "solid-js";
-import { WORKSPACE_DOWNLOAD_MAX_BYTES } from "../../../../../src/gateway/workspace-file-limits.js";
+import type { SessionFileDownload } from "../../../api/session-file-download.ts";
 import { Icon } from "../../../components/solid/icon.tsx";
 import "../../../components/tooltip.ts";
 import { registerFilePreviewEnglish } from "../../../i18n/locales/en-file-preview.ts";
-import { downloadBlobFile } from "../../../lib/download.ts";
 import { formatUiError } from "../../../lib/format-error.ts";
 import { t } from "../../../lib/reactive/i18n.ts";
 import { showToast } from "../../../lib/toast.ts";
@@ -11,43 +10,31 @@ import { showToast } from "../../../lib/toast.ts";
 registerFilePreviewEnglish();
 
 export function FileDownloadButton(props: {
-  filename: string;
-  size?: number;
   scopeKey: string;
-  download: (signal: AbortSignal) => Promise<Blob | null>;
+  download: (signal: AbortSignal) => Promise<SessionFileDownload | null>;
   class: string;
   disabled?: boolean;
 }) {
   const [pending, setPending] = createSignal(false);
-  const tooLarge = () => (props.size ?? 0) > WORKSPACE_DOWNLOAD_MAX_BYTES;
   let request: AbortController | null = null;
-  let disposed = false;
-  onCleanup(() => {
-    disposed = true;
-    request?.abort();
-  });
+  onCleanup(() => request?.abort());
   const download = async () => {
-    if (request || props.disabled || tooLarge()) {
+    if (request || props.disabled) {
       return;
     }
     const controller = new AbortController();
     const scopeKey = props.scopeKey;
-    const filename = props.filename;
     request = controller;
     setPending(true);
-    const current = () =>
-      !disposed &&
-      request === controller &&
-      !controller.signal.aborted &&
-      props.scopeKey === scopeKey &&
-      props.filename === filename;
+    const current = () => !controller.signal.aborted && props.scopeKey === scopeKey;
     try {
-      const blob = await props.download(controller.signal);
-      if (!blob) {
-        return;
-      }
-      if (current()) {
-        downloadBlobFile(filename, blob);
+      const file = await props.download(controller.signal);
+      if (file && current()) {
+        // The browser owns the byte stream and save progress, not a JavaScript Blob.
+        const link = document.createElement("a");
+        link.href = file.url;
+        link.download = file.filename;
+        link.click();
       }
     } catch (error) {
       if (current()) {
@@ -56,23 +43,21 @@ export function FileDownloadButton(props: {
         });
       }
     } finally {
-      if (request === controller) {
-        request = null;
-        if (!disposed) {
-          setPending(false);
-        }
+      request = null;
+      if (!controller.signal.aborted) {
+        setPending(false);
       }
     }
   };
   const label = () =>
     t(pending() ? "chat.detailPanel.downloading" : "chat.detailPanel.downloadFile");
   return (
-    <openclaw-tooltip prop:content={tooLarge() ? t("chat.detailPanel.downloadTooLarge") : label()}>
+    <openclaw-tooltip prop:content={label()}>
       <button
         class={props.class}
         type="button"
         aria-label={label()}
-        disabled={props.disabled || tooLarge() || pending()}
+        disabled={props.disabled || pending()}
         ref={(button) =>
           button.addEventListener("click", (event) => {
             event.stopPropagation();

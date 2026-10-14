@@ -1,4 +1,5 @@
 import type { GatewayBrowserClient, GatewayHelloOk } from "../../../api/gateway.ts";
+import type { SessionFileDownload } from "../../../api/session-file-download.ts";
 import type { SessionWorkspaceListResult } from "../../../api/types.ts";
 import type { UiSettings } from "../../../app/settings.ts";
 import type { SessionCapability, SessionScopeHost } from "../../../lib/sessions/index.ts";
@@ -24,7 +25,7 @@ export type SessionWorkspaceProps = {
     path: string,
     origin: "session" | "workspace",
     signal: AbortSignal,
-  ) => Promise<Blob | null>;
+  ) => Promise<SessionFileDownload | null>;
   onBrowsePath: (path: string) => void;
   onOpenFile: (path: string, origin: "session" | "workspace") => void;
   onSearch: (search: string) => void;

@@ -1,15 +1,15 @@
 import { detectMime } from "@openclaw/media-core/mime";
 import { canCreateArtifactDownload, createArtifactDownload } from "../artifact-download-grants.js";
-import { WORKSPACE_DOWNLOAD_MAX_BYTES } from "../workspace-file-limits.js";
-import {
-  collectSessionFileDownload,
-  readSessionFileDownloadWindow,
-  sessionFileByteResponse,
-} from "./session-file-download.js";
+import { resolveByteResponse } from "../http-byte-range.js";
+import { WORKSPACE_DOWNLOAD_CHUNK_BYTES } from "../workspace-file-limits.js";
+import { readSessionFileDownloadWindow } from "./session-file-download.js";
 import type { createSessionFileReadAuthority } from "./session-file-read-authority.js";
 import { sessionFilesError } from "./session-files-errors.js";
 import { readGatewayRequestMutationAuthority } from "./session-mutation-guards.js";
-import { downloadRepositoryArtifact } from "./session-repository-artifacts.js";
+import {
+  downloadRepositoryArtifact,
+  streamRepositoryArtifact,
+} from "./session-repository-artifacts.js";
 import type { resolveRepositoryWorkspaceAccess } from "./session-repository-workspace-access.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
 import type { LoadedSessionFiles } from "./workspace-files.js";
@@ -39,92 +39,103 @@ export async function respondSessionFileDownload(params: {
     return;
   }
   const authority = readGatewayRequestMutationAuthority(options);
-  const assertDownloadCurrent = () => {
+  const assertCurrent = () => {
     authority.assertCurrent();
     params.assertSessionCurrent();
     repository?.assertCurrent();
     hostRead.assertCurrent();
   };
-  const filePath = params.path;
-  const readBytes = () =>
-    repository?.kind === "stored"
-      ? downloadRepositoryArtifact(repository, filePath)
-      : collectSessionFileDownload((offset, identity) =>
-          repository?.kind === "active"
-            ? repository.inspect("download", {
-                files: params.loaded.files,
-                path: filePath,
-                offset,
-                identity,
-              })
-            : readSessionFileDownloadWindow({
-                ...params.loaded,
-                path: filePath,
-                offset,
-                identity,
-                authorizeHostRead: hostRead.authorizeHostRead,
-                assertCurrent: assertDownloadCurrent,
-              }),
-        );
-  const initial = await readBytes();
-  assertDownloadCurrent();
+  const read = (offset?: number, identity?: string) =>
+    repository?.kind === "active"
+      ? repository.inspect("download", {
+          files: params.loaded.files,
+          path: params.path,
+          offset,
+          identity,
+        })
+      : readSessionFileDownloadWindow({
+          ...params.loaded,
+          path: params.path,
+          offset,
+          identity,
+          authorizeHostRead: hostRead.authorizeHostRead,
+          assertCurrent,
+        });
+  const prepare = () =>
+    repository?.kind === "stored" ? downloadRepositoryArtifact(repository, params.path) : read();
+  const initial = await prepare();
+  assertCurrent();
   if (initial.status === "missing") {
     respond(
       false,
       undefined,
-      sessionFilesError("session_file_not_found", "session file not found", { path: filePath }),
+      sessionFilesError("session_file_not_found", "session file not found", { path: params.path }),
     );
     return;
   }
-  if (initial.status === "too-large") {
-    respond(
-      false,
-      undefined,
-      sessionFilesError(
-        "session_file_download_too_large",
-        "Session file exceeds the 8 MiB download limit.",
-        {
-          path: filePath,
-          size: initial.size,
-          maxDownloadBytes: WORKSPACE_DOWNLOAD_MAX_BYTES,
-        },
-      ),
-    );
-    return;
-  }
-  const { digest, filename } = initial;
-  const mimeType =
-    (await detectMime({
-      buffer: Buffer.from(initial.bytes.subarray(0, 4100)),
-      filePath: filename,
-    })) ?? "application/octet-stream";
+  const { filename, size, identity } = initial;
+  const mimeType = (await detectMime({ filePath: filename })) ?? "application/octet-stream";
   const artifact = {
-    id: digest,
+    id: identity,
     type: "file",
     title: filename,
     mimeType,
-    sizeBytes: initial.bytes.length,
+    sizeBytes: size,
     download: { mode: "url" as const },
   };
   const publish = () => {
-    assertDownloadCurrent();
+    assertCurrent();
     const download = createArtifactDownload({
       client: options.client,
-      prepared: { artifact, digest },
-      assertCurrent: assertDownloadCurrent,
+      prepared: { artifact, digest: identity },
+      assertCurrent,
       release: params.release,
-      read: async (response) => {
-        assertDownloadCurrent();
-        const current = await readBytes();
-        assertDownloadCurrent();
-        if (current.status !== "ok" || current.digest !== response.expectedDigest) {
+      read: async (request) => {
+        const current = await prepare();
+        assertCurrent();
+        if (current.status !== "ok" || current.identity !== request.expectedDigest) {
           return undefined;
         }
-        const prepare = () => ({
-          artifact,
-          ...sessionFileByteResponse(current.bytes, response),
+        const response = resolveByteResponse({
+          file: { size },
+          method: request.method,
+          request: { headers: request.headers, headersDistinct: {} },
         });
-        return hostRead.hasHostRead() ? hostRead.withCurrent(prepare) : prepare();
+        const result = () => ({
+          artifact,
+          response,
+          ...(request.method === "HEAD" ||
+          response.kind === "not-modified" ||
+          response.kind === "unsatisfiable"
+            ? {}
+            : {
+                async *stream(signal: AbortSignal) {
+                  const start = response.kind === "partial" ? response.range.start : 0;
+                  const end = response.kind === "partial" ? response.range.end + 1 : size;
+                  if (repository?.kind === "stored") {
+                    yield* streamRepositoryArtifact(repository, identity, start, end, signal);
+                    return;
+                  }
+                  for (let offset = start; offset < end;) {
+                    signal.throwIfAborted();
+                    assertCurrent();
+                    const window = await read(offset, identity);
+                    signal.throwIfAborted();
+                    assertCurrent();
+                    if (window.status !== "ok" || window.identity !== identity) {
+                      throw new Error("Session file became unavailable during download.");
+                    }
+                    const bytes = Buffer.from(window.data, "base64");
+                    if (bytes.length !== Math.min(WORKSPACE_DOWNLOAD_CHUNK_BYTES, size - offset)) {
+                      throw new Error("Session file download returned an incomplete byte window.");
+                    }
+                    yield bytes.subarray(0, end - offset);
+                    offset += bytes.length;
+                  }
+                },
+              }),
+        });
+        return hostRead.hasHostRead() ? hostRead.withCurrent(result) : result();
       },
     });
     params.onGrantCreated();

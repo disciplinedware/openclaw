@@ -67,6 +67,7 @@ import {
   createSessionFilesHandlerInvoker,
   createSessionFileDownloadClient,
   fetchSessionFileDownload,
+  openSessionFileDownload,
   createWorkspaceFixture,
   expectError,
   expectOkPayload,
@@ -544,7 +545,7 @@ it("keeps incognito repository downloads alive after their RPC planning borrow e
 
 it("downloads original live repository bytes in bounded windows and rejects stale placement", async () => {
   using connection = createSessionFileDownloadClient();
-  const bytes = Buffer.alloc(700_003, 0xff);
+  const bytes = Buffer.alloc(8 * 1024 * 1024 + 3, 0xff);
   fs.writeFileSync(path.join(workspace, "binary.zip"), bytes);
   const download = expectOkPayload(
     await invoke(
@@ -555,9 +556,38 @@ it("downloads original live repository bytes in bounded windows and rejects stal
     ),
   );
   expect(download.filename).toBe("binary.zip");
-  const fetched = await fetchSessionFileDownload(connection.client, download.url);
-  expect(fetched.response.statusCode).toBe(200);
-  expect(Buffer.from(fetched.body as Uint8Array)).toEqual(bytes);
+  // The RPC prepares metadata without reading any file bytes.
+  expect(run.mock.calls.every(([command]) => JSON.parse(command.input!).offset === undefined)).toBe(
+    true,
+  );
+  const nextWindow = createDeferredCore();
+  onTestFinished(() => nextWindow.resolve());
+  const readWindow = run.getMockImplementation()!;
+  run.mockImplementation(async (command) => {
+    const { offset } = JSON.parse(command.input!);
+    if (offset > 0) {
+      await nextWindow.promise;
+    }
+    return readWindow(command);
+  });
+  const response = await openSessionFileDownload(connection.client, download.url);
+  expect(response.status).toBe(200);
+  const reader = response.body!.getReader();
+  const first = await reader.read();
+  expect(first.value!.length).toBeGreaterThan(0);
+  expect(Buffer.from(first.value!).equals(bytes.subarray(0, first.value!.length))).toBe(true);
+  nextWindow.resolve();
+  const chunks = [first.value!];
+  for (;;) {
+    const next = await reader.read();
+    if (next.done) {
+      break;
+    }
+    chunks.push(next.value);
+  }
+  expect(Buffer.concat(chunks).equals(bytes)).toBe(true);
+  const windows = await Promise.all(run.mock.results.map((call) => call.value));
+  expect(windows.every((result) => Buffer.byteLength(result.stdout) < 2 * 1024 * 1024)).toBe(true);
   for (const filePath of ["../outside", "/etc/passwd"]) {
     expectError(
       await invoke("sessions.files.download", { sessionKey, path: filePath }, context, connection),
@@ -677,10 +707,7 @@ it("keeps stopped inspection limited to verified changed artifacts", async () =>
   });
   fs.writeFileSync(path.join(workspace, "changed.txt"), "retained first\n");
   fs.writeFileSync(path.join(workspace, "second.txt"), "retained second\n");
-  fs.writeFileSync(
-    path.join(workspace, "oversized.txt"),
-    Buffer.alloc(WORKSPACE_PREVIEW_MAX_BYTES + 1, 97),
-  );
+  fs.writeFileSync(path.join(workspace, "oversized.txt"), Buffer.alloc(8 * 1024 * 1024 + 1, 97));
   const current = await captureWorkspaceManifest({
     root: workspace,
     baseCommit: source.baseCommit,
@@ -732,9 +759,9 @@ it("keeps stopped inspection limited to verified changed artifacts", async () =>
   );
   const fetched = await fetchSessionFileDownload(connection.client, download.url);
   expect(fetched.response.statusCode).toBe(200);
-  expect(Buffer.from(fetched.body as Uint8Array)).toEqual(
-    Buffer.alloc(WORKSPACE_PREVIEW_MAX_BYTES + 1, 97),
-  );
+  expect(
+    Buffer.from(fetched.body as Uint8Array).equals(Buffer.alloc(8 * 1024 * 1024 + 1, 97)),
+  ).toBe(true);
   expectError(
     await invoke("sessions.files.download", { sessionKey, path: "README" }, context, connection),
   );
@@ -758,7 +785,7 @@ it("keeps stopped inspection limited to verified changed artifacts", async () =>
       type: "session_file_too_large",
       path: "oversized.txt",
       maxPreviewBytes: WORKSPACE_PREVIEW_MAX_BYTES,
-      size: WORKSPACE_PREVIEW_MAX_BYTES + 1,
+      size: 8 * 1024 * 1024 + 1,
     },
   });
   expect(blobsRead()).toBe(beforeOversized);

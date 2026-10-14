@@ -9,7 +9,6 @@ const catalog = {
       discard: "Discard",
       editFile: "Edit file",
       downloadFile: "Download file",
-      downloadTooLarge: "Files over 8 MiB are not available for download.",
       downloading: "Downloading…",
       downloadFailed: "Could not download this file: {error}. Try again.",
       searchInFile: "Search in file",

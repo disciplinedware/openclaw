@@ -214,7 +214,6 @@ function updatePreviewContent(
       previous.content === content.content &&
       previous.edit?.hash === content.edit?.hash &&
       previous.path === content.path &&
-      previous.size === content.size &&
       previous.root === content.root &&
       previous.mimeType === content.mimeType
     )

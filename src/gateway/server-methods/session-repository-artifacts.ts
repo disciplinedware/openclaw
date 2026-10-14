@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import path from "node:path";
 import type {
   SessionFileBrowserEntry,
@@ -6,8 +5,10 @@ import type {
   SessionsDiffParams,
   SessionsDiffResult,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { gitEnvironment } from "../../agents/worktrees/git.js";
+import { gitCommandArgv, gitReadOnlyEnvironment } from "../../infra/git-exec.js";
+import { spawnCommand } from "../../process/exec-spawn.js";
 import { readSessionRepositoryArtifacts } from "../worker-environments/session-repository-checkpoints.js";
-import { WORKSPACE_DOWNLOAD_MAX_BYTES } from "../workspace-file-limits.js";
 import type { resolveRepositoryWorkspaceAccess } from "./session-repository-workspace-access.js";
 import { populateSessionFilePreview } from "./workspace-files.js";
 import { normalizeRelativePath, sortWorkspaceEntries } from "./workspace-fs.js";
@@ -145,20 +146,61 @@ export async function downloadRepositoryArtifact(access: StoredRepository, reque
   if (!snapshot || entry?.type !== "file") {
     return { status: "missing" as const };
   }
-  if (entry.size > WORKSPACE_DOWNLOAD_MAX_BYTES) {
-    return { status: "too-large" as const, size: entry.size };
-  }
-  if (!snapshot.preview) {
+  if (!snapshot.downloadObjectId) {
     return { status: "missing" as const };
   }
-  access.assertCurrent();
-  const bytes = new Uint8Array(snapshot.preview);
   return {
     status: "ok" as const,
     filename: path.posix.basename(entry.path),
-    bytes,
-    digest: createHash("sha256").update(bytes).digest("hex"),
+    size: entry.size,
+    identity: snapshot.downloadObjectId,
   };
+}
+
+/** Accepted changed blobs are immutable. Never materialize a checkout or a whole blob. */
+export async function* streamRepositoryArtifact(
+  access: StoredRepository,
+  objectId: string,
+  start: number,
+  end: number,
+  signal: AbortSignal,
+) {
+  signal.throwIfAborted();
+  access.assertCurrent();
+  const args = ["cat-file", "blob", objectId];
+  const child = spawnCommand(
+    gitCommandArgv(access.store.artifactPath(access.repository.workspaceId), args),
+    {
+      env: gitReadOnlyEnvironment(args, gitEnvironment()),
+      buffer: false,
+      stdio: ["ignore", "pipe", "ignore"],
+      cancelSignal: signal,
+    },
+  );
+  const completed = child.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  try {
+    let offset = 0;
+    for await (const chunk of child.stdout!) {
+      const bytes: Buffer = chunk;
+      const next = offset + bytes.length;
+      if (next > start && offset < end) {
+        yield bytes.subarray(Math.max(0, start - offset), Math.min(bytes.length, end - offset));
+      }
+      offset = next;
+      if (offset >= end) {
+        break;
+      }
+    }
+    if (offset < end) {
+      throw new Error("Retained file download ended before its expected size.");
+    }
+  } finally {
+    child.kill();
+    await completed;
+  }
 }
 
 export async function loadRepositoryArtifactDiff(

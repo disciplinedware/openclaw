@@ -7,10 +7,7 @@ import {
   SessionsFilesGetResultSchema,
   SessionsFilesListResultSchema,
 } from "../../packages/gateway-protocol/src/schema/sessions.js";
-import {
-  WORKSPACE_DOWNLOAD_CHUNK_BYTES,
-  WORKSPACE_DOWNLOAD_MAX_BYTES,
-} from "../gateway/workspace-file-limits.js";
+import { WORKSPACE_DOWNLOAD_CHUNK_BYTES } from "../gateway/workspace-file-limits.js";
 
 export const WORKSPACE_INSPECTION_COMMAND = "openclaw-internal-workspace-inspect";
 export const WORKSPACE_INSPECTION_MAX_BYTES = 2 * 1024 * 1024;
@@ -39,7 +36,7 @@ const schema = z.discriminatedUnion("operation", [
       operation: z.literal("download"),
       path: text,
       files,
-      offset: z.number().int().min(0).max(WORKSPACE_DOWNLOAD_MAX_BYTES),
+      offset: z.number().int().min(0).optional(),
       identity: z.string().max(4096).optional(),
     })
     .strict(),
@@ -109,14 +106,10 @@ const resultSchemas = {
   download: Type.Union([
     Type.Object({ status: Type.Literal("missing") }, { additionalProperties: false }),
     Type.Object(
-      { status: Type.Literal("too-large"), size: Type.Integer({ minimum: 0 }) },
-      { additionalProperties: false },
-    ),
-    Type.Object(
       {
         status: Type.Literal("ok"),
         filename: Type.String({ minLength: 1 }),
-        size: Type.Integer({ minimum: 0, maximum: WORKSPACE_DOWNLOAD_MAX_BYTES }),
+        size: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
         identity: Type.String({ minLength: 1, maxLength: 4096 }),
         data: Type.String({
           maxLength: Math.ceil(WORKSPACE_DOWNLOAD_CHUNK_BYTES / 3) * 4,

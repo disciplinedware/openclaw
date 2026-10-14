@@ -123,7 +123,7 @@ describe("sessions.files host read boundary", () => {
     using connection = createSessionFileDownloadClient();
     const fixture = prepareHostFileRead({ permissionMode: "read-only" });
     const filename = "résumé original.zip";
-    const bytes = Buffer.alloc(700_001, 0xff);
+    const bytes = Buffer.alloc(8 * 1024 * 1024 + 17, 0xff);
     bytes.write("PK\x03\x04", "binary");
     fs.writeFileSync(path.join(workspaceRoot, filename), bytes);
     const download = expectOkPayload(
@@ -138,7 +138,7 @@ describe("sessions.files host read boundary", () => {
     expect(download.mimeType).toBe("application/zip");
     const fetched = await fetchSessionFileDownload(connection.client, download.url);
     expect(fetched.response.statusCode).toBe(200);
-    expect(Buffer.from(fetched.body as Uint8Array)).toEqual(bytes);
+    expect(Buffer.from(fetched.body as Uint8Array).equals(bytes)).toBe(true);
     expect(fetched.response.getHeader("content-disposition")).toContain("attachment;");
     expect(fetched.response.getHeader("content-disposition")).toContain(
       "filename*=UTF-8''r%C3%A9sum%C3%A9%20original.zip",
@@ -163,7 +163,7 @@ describe("sessions.files host read boundary", () => {
     ).toBe(404);
   });
 
-  it("enforces download rather than preview bounds and rejects workspace escapes and links", async () => {
+  it("rejects workspace escapes and links before granting downloads", async () => {
     using connection = createSessionFileDownloadClient();
     const fixture = prepareHostFileRead({ permissionMode: "read-only" });
     const outsidePath = outsideFile();
@@ -179,25 +179,6 @@ describe("sessions.files host read boundary", () => {
         ),
       );
     }
-    const huge = path.join(workspaceRoot, "huge.bin");
-    fs.writeFileSync(huge, "");
-    fs.truncateSync(huge, 8 * 1024 * 1024 + 1);
-    expect(
-      expectError(
-        await invoke(
-          "sessions.files.download",
-          { sessionKey, path: "huge.bin" },
-          fixture.context,
-          connection,
-        ),
-      ),
-    ).toMatchObject({
-      details: {
-        type: "session_file_download_too_large",
-        maxDownloadBytes: 8 * 1024 * 1024,
-        size: 8 * 1024 * 1024 + 1,
-      },
-    });
   });
 
   it.each(["txt", "pdf", "zip"])(
@@ -226,7 +207,7 @@ describe("sessions.files host read boundary", () => {
       expect(download.filename).toBe(filename);
       const result = await fetchSessionFileDownload(connection.client, download.url);
       expect(result.response.statusCode).toBe(200);
-      expect(Buffer.from(result.body as Uint8Array)).toEqual(bytes);
+      expect(Buffer.from(result.body as Uint8Array).equals(bytes)).toBe(true);
       fixture.entry.permissionMode = "read-only";
       expect(
         (await fetchSessionFileDownload(connection.client, download.url)).response.statusCode,

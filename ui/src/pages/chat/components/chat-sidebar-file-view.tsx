@@ -175,8 +175,6 @@ export function SidebarFile(props: {
               <Show when={props.content.download}>
                 {(download) => (
                   <FileDownloadButton
-                    filename={props.content.name}
-                    size={props.content.size}
                     scopeKey={[
                       props.content.sessionFileSource?.sessionKey ?? props.runtime?.sessionKey,
                       props.content.path,
