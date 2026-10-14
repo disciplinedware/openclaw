@@ -1,3 +1,4 @@
+import { inferControlUiPublicAssetPath } from "../../../app/public-assets.ts";
 import { getMediaFileExtension } from "../../../lib/media-file-extension.ts";
 // The icon owns its CSS so composer and transcript call sites cannot render it unstyled.
 import "../../../styles/chat/attachments.css";
@@ -240,5 +241,43 @@ export function resolveAttachmentFileIcon(
       extension?.toUpperCase() ??
       (definition.family === "unknown" ? "FILE" : definition.family.toUpperCase()),
     compact,
+  };
+}
+
+function fileIconAssetPath(path: string): string {
+  return inferControlUiPublicAssetPath(`file-icons/${path}.svg`);
+}
+
+export type AttachmentFileIconOptions = {
+  filename: string;
+  mimeType?: string;
+  mode: AttachmentFileVisualMode;
+  unavailable?: boolean;
+  loading?: boolean;
+};
+
+export function prepareAttachmentFileIcon(options: AttachmentFileIconOptions) {
+  const resolved = resolveAttachmentFileIcon(options.filename, options.mimeType);
+  const large = options.mode === "large-placeholder";
+  const size = large ? "44px" : "20px";
+  const assetPath = (theme: "light" | "dark") =>
+    fileIconAssetPath(
+      large
+        ? `large/shell-${theme}`
+        : resolved.compact
+          ? `compact/${theme}/${resolved.compact}`
+          : `compact/unknown-${theme}`,
+    );
+  return {
+    family: resolved.family,
+    large,
+    style: {
+      width: size,
+      height: size,
+      "--chat-file-icon-light": `url("${assetPath("light")}")`,
+      "--chat-file-icon-dark": `url("${assetPath("dark")}")`,
+      "--chat-file-icon-overlay": `url("${fileIconAssetPath(`overlays/${resolved.family}`)}")`,
+      "--chat-file-icon-accent": resolved.accent,
+    },
   };
 }

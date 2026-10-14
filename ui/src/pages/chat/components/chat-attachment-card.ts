@@ -61,11 +61,19 @@ export function prepareAttachmentCardHeader(options: AttachmentCardHeaderOptions
   const typeLabel = typeLabelKey
     ? translate(typeLabelKey)
     : resolveAttachmentFileIcon(options.label, options.mimeType).extensionLabel;
+  const downloadLabel = options.kind === "document" ? translate("chat.attachments.download") : "";
   return {
     compactPreview: options.visualMode === "preview-with-favicon",
     formattedSize,
     metadata: [typeLabel, formattedSize].filter(Boolean).join(" · "),
-    downloadLabel: options.kind === "document" ? translate("chat.attachments.download") : "",
+    downloadLabel,
+    downloadClass: `chat-assistant-attachment-card__action chat-assistant-attachment-card__download chat-assistant-attachment-card__download--ghost ${
+      downloadLabel
+        ? "chat-assistant-attachment-card__action--labeled"
+        : options.onExpand !== undefined
+          ? "chat-assistant-attachment-card__download--secondary"
+          : ""
+    } ${options.loading ? "skeleton" : ""}`,
     downloadTitle: translate("chat.mediaPlayer.download", { filename: options.label }),
     expandLabel:
       options.expandLabel ?? translate("chat.attachments.expand", { filename: options.label }),
