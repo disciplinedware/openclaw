@@ -9,10 +9,12 @@ const { close, configureSqliteConnectionPragmas } = vi.hoisted(() => ({
   configureSqliteConnectionPragmas: vi.fn(),
 }));
 
-// mock-isolation: Reject at filesystem policy before worker or admission initialization.
-vi.mock("openclaw/plugin-sdk/sqlite-worker-runtime", async () => {
+// mock-isolation: Inject filesystem-policy rejection while retaining real schema admission.
+vi.mock("openclaw/plugin-sdk/sqlite-worker-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/sqlite-worker-runtime")>();
   const { DatabaseSync } = await import("node:sqlite");
   return {
+    ...actual,
     openNodeSqliteDatabase: vi.fn(() => {
       const db = new DatabaseSync(":memory:");
       const closeDatabase = db.close.bind(db);
