@@ -429,10 +429,12 @@ describe("resolvePluginWebSearchProviders", () => {
     expect(select.mock.calls.map(([params]) => requireRecord(params).message)).toEqual([
       "Kimi API region",
     ]);
-    expect(next).toMatchObject({
+    expect(next).toEqual({
       plugins: {
+        allow: ["moonshot"],
         entries: {
           moonshot: {
+            enabled: true,
             config: {
               webSearch: {
                 baseUrl: "https://api.moonshot.ai/v1",
