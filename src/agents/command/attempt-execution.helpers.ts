@@ -31,7 +31,10 @@ import {
   readClaudeCliFallbackSeed,
 } from "../../gateway/cli-session-history.claude.js";
 import { isSubagentSessionKey } from "../../routing/session-key.js";
-import type { InputProvenance } from "../../sessions/input-provenance.js";
+import {
+  isSubagentCoordinationInputProvenance,
+  type InputProvenance,
+} from "../../sessions/input-provenance.js";
 import { isDeliverableMessageChannel } from "../../utils/message-channel.js";
 import { sleep } from "../../utils/sleep.js";
 import { buildAgentRunTerminalReplySnapshot } from "../agent-run-terminal-reply.js";
@@ -53,8 +56,15 @@ export function resolveCommandReplyExpectation(params: {
   messageChannel?: string;
   opts: { lane?: string; privateCompletion?: true; inputProvenance?: InputProvenance };
 }): ReplyExpectation | undefined {
+  // Private review and child coordination owe input processing, not a visible
+  // answer. Ordinary user turns and child deliverables retain their reply policy.
   if (
     params.opts.privateCompletion ||
+    isSubagentCoordinationInputProvenance(params.opts.inputProvenance)
+  ) {
+    return "optional";
+  }
+  if (
     params.opts.lane === AGENT_LANE_SUBAGENT ||
     isSubagentSessionKey(params.sessionKey) ||
     !isDeliverableMessageChannel(params.messageChannel ?? "")
