@@ -920,7 +920,7 @@ suite.define(() => {
         expect(response?.status()).toBe(200);
         await page.locator(".sidebar-rail").waitFor({ state: "attached" });
         const error = await expectRealChunkFailure(page, "openclaw-macos-titlebar-controls");
-        // Keep later automatic probes from recovering before the explicit Retry.
+        // Automatic recovery may probe again after its cooldown; keep success held until Retry.
         await expect.poll(failure.headCount).toBeGreaterThanOrEqual(1);
         expect(failure.chunkRequestCount()).toBe(1);
         if (railProofDir) {
