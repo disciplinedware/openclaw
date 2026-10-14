@@ -81,6 +81,7 @@ export function renderChatWorkingIndicator(
       : currentThemeBranding().workingIndicator);
   const neutral = indicator === "dots";
   const continuation = options.presentation === "continuation";
+  const hasSubagentActivity = options.subagentActivity !== undefined;
   const statusLabel = waitingApproval
     ? t("chat.waitingForApproval")
     : options.startupLabel || t("common.working");
@@ -103,12 +104,12 @@ export function renderChatWorkingIndicator(
   // announcing every elapsed-time tick to screen readers.
   const status = html`
     <div
-      class="chat-working-indicator ${continuation ? "chat-working-indicator--continuation" : ""}"
+      class="chat-working-indicator ${continuation ? "chat-working-indicator--continuation" : ""} ${hasSubagentActivity ? "chat-working-indicator--supporting" : ""}"
       role="status"
       aria-live="off"
     >
       ${
-        continuation || indicator === "none"
+        continuation || hasSubagentActivity || indicator === "none"
           ? nothing
           : html`
               <div
@@ -182,7 +183,7 @@ export function renderChatWorkingIndicator(
       </span>
     </div>
   `;
-  const content = html`${status}${options.subagentActivity ?? nothing}`;
+  const content = html`${options.subagentActivity ?? nothing}${status}`;
   // Human-action and child-wait states keep their existing visible controls.
   return options.bubbleMode && working && runningSubagents === 0
     ? renderChatBubbleActivity(content, t("chat.view.workingDetails"), true)
