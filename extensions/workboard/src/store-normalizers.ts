@@ -426,7 +426,8 @@ function normalizeEvent(record: Record<string, unknown>): WorkboardEvent | null 
   const fromStatus = normalizeEnumValue(record.fromStatus, WORKBOARD_STATUSES, undefined);
   const toStatus = normalizeEnumValue(record.toStatus, WORKBOARD_STATUSES, undefined);
   const sessionKey = normalizeOptionalString(record.sessionKey);
-  const runId = normalizeRunId(record.runId);
+  // Historical events retain identities admitted before the run-ID limit.
+  const runId = normalizeOptionalString(record.runId);
   return {
     id,
     kind,
@@ -460,7 +461,7 @@ function normalizeAttempt(record: Record<string, unknown>): WorkboardRunAttempt 
     mode: normalizeEnumValue(record.mode, WORKBOARD_EXECUTION_MODES, undefined),
     model,
     sessionKey: normalizeOptionalString(record.sessionKey),
-    runId: normalizeRunId(record.runId),
+    runId: normalizeOptionalString(record.runId),
     error,
   });
 }
