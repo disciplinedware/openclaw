@@ -1,11 +1,10 @@
 /* @vitest-environment jsdom */
 import "../../../ui/src/test-helpers/lit-warnings.setup.ts";
 import path from "node:path";
-import { createComponent } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../../ui/src/i18n/index.ts";
 import { createFirstRunContext } from "../../../ui/src/pages/model-setup/model-setup-first-run.test-support.ts";
-import { ModelSetupPage } from "../../../ui/src/pages/model-setup/model-setup-page.tsx";
+import { page as modelSetupRoute } from "../../../ui/src/pages/model-setup/route.ts";
 import { createApplicationContextProvider } from "../../../ui/src/test-helpers/application-context.ts";
 import { cleanupSolid, mountSolid } from "../../../ui/src/test-helpers/mount-solid.ts";
 import { createSolidApplicationContextProvider } from "../../../ui/src/test-helpers/solid-application-context.tsx";
@@ -166,8 +165,14 @@ describe("selected-agent Gateway detection and Model Setup consent", () => {
       });
       const provider = createApplicationContextProvider(context);
       document.body.append(provider);
+      const route = await modelSetupRoute.component();
       const { container: page } = mountSolid(
-        () => createComponent(ModelSetupPage, { routeData: { firstRun: true } }),
+        () =>
+          route.renderSolid({
+            data: { firstRun: true },
+            loaderPending: false,
+            presented: true,
+          }),
         { container: provider, wrapper: createSolidApplicationContextProvider(context).wrapper },
       );
       await waitForSolid(() => expect(request).toHaveBeenCalled());
