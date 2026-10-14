@@ -295,7 +295,7 @@ export async function buildAssistantReplyContentFromInputs(
         : undefined;
   return {
     assistantContent,
-    mediaBySource,
+    ...(mediaBySource.size > 0 ? { mediaBySource } : {}),
     persistedAssistantContent:
       persistedContent.length > 0
         ? persistedContent
