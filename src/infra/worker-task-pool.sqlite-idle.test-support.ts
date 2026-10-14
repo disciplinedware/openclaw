@@ -42,7 +42,9 @@ serveOwnedWorkerTasks<SqliteIdleReply>(
     assert.ok(isRecord(input));
     let reused: boolean | undefined;
     if (input.expire) {
-      for (const [timer, expire] of [...timers]) {
+      // Failed close rearms its timer; expire only this generation so failure cannot spin.
+      const expiringTimers = [...timers];
+      for (const [timer, expire] of expiringTimers) {
         clearTimeout(timer);
         expire();
       }
