@@ -438,6 +438,12 @@ export default {
         const observedRelays = new Map<string, ProcessIdentity>();
         let gatewayPid: number | undefined;
         try {
+          const utilityProvider = createMockProviderMap("mock-openai", providerBaseUrl, [
+            UTILITY_MODEL,
+          ])["mock-openai"];
+          if (!utilityProvider) {
+            throw new Error("mock provider map is missing the utility provider");
+          }
           const gateway = await owner.start({
             repoRoot: REPO_ROOT,
             command: {
@@ -460,9 +466,7 @@ export default {
                 ...config.models,
                 providers: {
                   ...config.models?.providers,
-                  "mock-openai": createMockProviderMap("mock-openai", providerBaseUrl, [
-                    UTILITY_MODEL,
-                  ])["mock-openai"],
+                  "mock-openai": utilityProvider,
                 },
               },
               agents: {
@@ -482,6 +486,7 @@ export default {
               },
               plugins: {
                 ...config.plugins,
+                slots: { ...config.plugins?.slots, memory: "none" },
                 allow: [...(config.plugins?.allow ?? []), PLUGIN_ID],
                 load: { paths: [pluginDir] },
                 entries: {

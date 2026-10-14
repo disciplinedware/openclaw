@@ -69,7 +69,8 @@ function appendToolPair(manager: SessionManager, index: number) {
 describe("Codex bounded assistant continuity", () => {
   it("retains an assistant-only bounded suffix on a rotated native thread", async () => {
     const { params, manager } = await createHistory();
-    manager.appendMessage(userMessage("Explain the synthetic migration plan.", 1));
+    const oversizedRequest = `Explain the synthetic migration plan.\n${"prior migration details ".repeat(1_024)}`;
+    manager.appendMessage(userMessage(oversizedRequest, 1));
     for (let index = 0; index < 4; index++) {
       appendToolPair(manager, index);
     }

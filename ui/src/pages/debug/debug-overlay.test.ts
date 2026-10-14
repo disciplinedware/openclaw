@@ -230,8 +230,11 @@ describe("DebugOverlay", () => {
 
     try {
       overlay.toggle();
-      await vi.advanceTimersByTimeAsync(0);
-      await overlay.updateComplete;
+      await waitForSolid(() =>
+        expect(normalizedText(overlay.querySelector(".gateway-vital--cpu"))).toContain(
+          "1.10 cores",
+        ),
+      );
 
       const vitalUpdated = () => updateOverlayVitals(overlay);
       await vitalUpdated();
@@ -285,7 +288,14 @@ describe("DebugOverlay", () => {
       // Healthy event loop: no tile carries the degraded tint.
       expect(overlay.querySelector(".gateway-vital[data-degraded]")).toBeNull();
 
-      await vi.advanceTimersByTimeAsync(900_000);
+      for (let expectedSample = 3; expectedSample <= 92; expectedSample += 1) {
+        vi.advanceTimersByTime(10_000);
+        await waitForSolid(() =>
+          expect(
+            overlay.querySelector<TestSparkline>(".gateway-vital--cpu")?.samples.at(-1)?.value,
+          ).toBe(1 + expectedSample / 10),
+        );
+      }
       await vitalUpdated();
 
       const points = overlay
@@ -398,6 +408,11 @@ describe("DebugOverlay", () => {
     document.body.append(overlay);
     try {
       overlay.toggle();
+      await waitForSolid(() =>
+        expect(overlay.querySelector<TestSparkline>(".gateway-vital--disk")?.samples).toHaveLength(
+          1,
+        ),
+      );
       await vi.advanceTimersByTimeAsync(10_000);
       await updateOverlayVitals(overlay);
       expect(overlay.querySelector<TestSparkline>(".gateway-vital--disk")?.samples).toHaveLength(2);

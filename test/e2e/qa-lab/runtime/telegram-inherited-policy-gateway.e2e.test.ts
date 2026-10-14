@@ -139,6 +139,11 @@ test.each(["allowlist", "open"] as const)(
           try {
             gateway = await gatewayOwner.start({
               repoRoot,
+              command: {
+                executablePath: process.execPath,
+                argsPrefix: [path.join(repoRoot, "dist", "index.js")],
+                argsSuffix: ["--verbose"],
+              },
               providerMode: "mock-openai",
               providerBaseUrl: `${mock.baseUrl}/v1`,
               transportBaseUrl: apiRoot,
