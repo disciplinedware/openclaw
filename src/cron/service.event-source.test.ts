@@ -95,7 +95,7 @@ async function fixture(overrides: Partial<CronServiceDeps> = {}) {
         receivedAtMs: event.receivedAtMs,
         payload: event.payload,
         claim: { queueName: claimed.queueName, id: claimed.id, token: claimed.claim.token },
-        commitGuard() {},
+        commitGuard: () => {},
       },
     };
   }

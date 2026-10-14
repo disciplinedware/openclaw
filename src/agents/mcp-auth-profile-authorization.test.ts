@@ -2,9 +2,11 @@ import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { describe, expect, it, vi } from "vitest";
 import { runNodeScript } from "../../test/helpers/run-node-script.js";
+import * as directoryObservation from "../infra/owned-directory-observation.js";
 import * as admission from "../infra/sqlite-worker-operation-admission.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import { readAuthProfileAuthorizationLifetime } from "./auth-profiles/authorization-lifetime.js";
 import { retainAuthProfileAuthorizationObservation } from "./auth-profiles/authorization-observation.js";
 import { createOAuthManager } from "./auth-profiles/oauth-manager.js";
 import {
@@ -407,22 +409,40 @@ describe("MCP auth-profile authorization", () => {
     await withEnvAsync(root.env, async () => {
       const caller = source();
       const agentDir = path.join(root.stateDir, "agents", "new-agent", "agent");
-      const authority = await captureMcpAuthProfileAuthorization({
-        profileId: "shared",
-        agentDir,
-        assertCurrent: caller.assertCurrent,
-      });
+      const observe = directoryObservation.observeOwnedDirectory;
+      const watcher = vi
+        .spyOn(directoryObservation, "observeOwnedDirectory")
+        .mockImplementation((directory, onChange, options) =>
+          // Native commit publication must not depend on a later filesystem notification.
+          directory === agentDir ? { close() {} } : observe(directory, onChange, options),
+        );
       try {
-        await upsertAuthProfileWithLockOrThrow({
+        const authority = await captureMcpAuthProfileAuthorization({
           profileId: "shared",
           agentDir,
-          credential: apiKey("override"),
+          assertCurrent: caller.assertCurrent,
         });
-        await expect(authority.revalidate()).rejects.toMatchObject({
-          code: "MCP_AUTHORIZATION_RETIRED",
-        });
+        try {
+          expect(
+            readAuthProfileAuthorizationLifetime(
+              readPersistedAuthProfileStoreRaw(agentDir),
+              "shared",
+            ),
+          ).toEqual(expect.any(String));
+          expect(authority.assertCurrent).not.toThrow();
+          await upsertAuthProfileWithLockOrThrow({
+            profileId: "shared",
+            agentDir,
+            credential: apiKey("override"),
+          });
+          await expect(authority.revalidate()).rejects.toMatchObject({
+            code: "MCP_AUTHORIZATION_RETIRED",
+          });
+        } finally {
+          authority.dispose();
+        }
       } finally {
-        authority.dispose();
+        watcher.mockRestore();
       }
     });
   });

@@ -9,8 +9,6 @@ import { createSqliteLifecycleAggregateError } from "../../infra/sqlite-lifecycl
 import { hasSqliteWorkerOutcomeUnknown } from "../../infra/sqlite-worker-contract.js";
 import {
   createSqliteWorkerOperationAdmission,
-  observeSqliteWorkerCommittedFacts,
-  type SqliteWorkerAdmissionFactory,
   type SqliteWorkerAdmissionRequest,
 } from "../../infra/sqlite-worker-operation-admission.js";
 import type { AgentDatabaseRequestExecutionSource } from "../../state/openclaw-agent-execution-admission-contract.js";
@@ -21,10 +19,8 @@ import { getOpenClawDatabaseMaintenanceScope } from "../../state/openclaw-state-
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
 import { runOpenClawStateWorkerOperation } from "../../state/openclaw-state-worker-store.js";
-import { authProfileCredentialPublication } from "../../state/user-model-account-authority.js";
 import { isUserModelAuthProfileId } from "../../state/user-model-account-id.js";
 import { takeAuthProfileAuthorizationWriteIntents } from "./authorization-lifetime.js";
-import { fenceAuthProfileAuthorizationWrite } from "./authorization-observation.js";
 import {
   AUTH_STORE_VERSION,
   authProfilesLog,
@@ -68,7 +64,10 @@ import {
 } from "./sqlite.js";
 import type { SaveAuthProfileStoreOptions } from "./store-save.js";
 import { watchAuthProfileNativeCommits } from "./store-update-commit.js";
-import { publishAuthProfileStoreUpdate } from "./store-update-publication.js";
+import {
+  createAuthProfileStoreUpdatePublication,
+  publishAuthProfileStoreUpdate,
+} from "./store-update-publication.js";
 import {
   sendAuthProfileUpdateValue,
   receiveAuthProfileUpdateValue,
@@ -192,8 +191,6 @@ async function runPreparedAuthProfileStoreUpdate(
 ): Promise<void> {
   const owner = { ...sharedOwner, databasePath: databaseTarget.path };
   let acknowledged = false;
-  let settleAuthorization: ReturnType<typeof fenceAuthProfileAuthorizationWrite> | undefined;
-  let authorizationPostimage: unknown;
   let exchangePort: MessagePort | undefined;
   let nativeCommits: ReturnType<typeof watchAuthProfileNativeCommits> | undefined;
   let sharedSource:
@@ -304,65 +301,14 @@ async function runPreparedAuthProfileStoreUpdate(
           | undefined;
         committed = received;
       }
-      if (committed?.publication.credentialsChanged) {
-        authorizationPostimage = {
-          profiles: committed.store.profiles,
-          authorizationLifetimes: committed.authorizationLifetimes,
-        };
-        settleAuthorization = fenceAuthProfileAuthorizationWrite(owner.databasePath);
-      }
+      return committed;
     };
-    const withCredentialPublication =
-      (
-        createAdmission: (collect: () => void) => SqliteWorkerAdmissionFactory,
-      ): SqliteWorkerAdmissionFactory =>
-      (operation) => {
-        let publication: ReturnType<typeof authProfileCredentialPublication.begin> | undefined;
-        let authorizationCommitted = false;
-        const retained = createAdmission(() => {
-          collectCommitted();
-          const owner = committed?.credentialOwner;
-          if (owner) {
-            publication = authProfileCredentialPublication.begin({
-              ...owner,
-              assertCurrent: assertAuthority,
-            });
-          }
-        })(operation);
-        const { admission } = retained;
-        observeSqliteWorkerCommittedFacts(admission, ({ facts }) => {
-          const credentials = isRecord(facts) ? facts.authCredentials : undefined;
-          publication?.committed(credentials);
-          authorizationCommitted =
-            publication !== undefined && !(isRecord(credentials) && credentials.kind === "unknown");
-        });
-        const finishAuthorization = (known: boolean) => {
-          // Native settlement, not delivery of the operation result, owns this projection.
-          const receipt = admission.committed;
-          settleAuthorization?.(
-            known && (!receipt || authorizationCommitted),
-            authorizationCommitted && committedIsCurrent() ? authorizationPostimage : undefined,
-          );
-        };
-        const finish = admission.finish.bind(admission);
-        admission.finish = () => {
-          try {
-            finish();
-          } finally {
-            if (admission.settlement) {
-              const confirmed = admission.settlement.kind === "completed";
-              publication?.finish(confirmed, confirmed && !admission.committed);
-              finishAuthorization(confirmed);
-            }
-          }
-        };
-        void operation.settled.then((outcome) => {
-          const known = outcome.kind !== "unknown";
-          publication?.finish(known, known && !admission.committed);
-          finishAuthorization(known);
-        });
-        return retained;
-      };
+    const withCredentialPublication = createAuthProfileStoreUpdatePublication({
+      databasePath: owner.databasePath,
+      collectCommitted,
+      committedIsCurrent: () => committedIsCurrent(),
+      assertCurrent: () => assertAuthority(),
+    });
     const input = {
       owner: {
         databasePath: owner.databasePath,

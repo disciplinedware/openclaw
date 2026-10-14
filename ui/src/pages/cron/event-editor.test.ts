@@ -162,7 +162,9 @@ describe("event definition replacement", () => {
         captureConnection: () => connection,
         isCurrentConnection: (scope) => scope === connection,
         notify: () => {
-          if (!editor.view.loading) ready.resolve();
+          if (!editor.view.loading) {
+            ready.resolve();
+          }
         },
       });
       const request = client.request.bind(client);
@@ -174,9 +176,13 @@ describe("event definition replacement", () => {
         return result;
       };
       editor.sync();
-      if (change === "revision") job.configRevision = "definition-two";
-      else if (change === "source identity") job.state.sourceIdentity = "source-two";
-      else job.enabled = false;
+      if (change === "revision") {
+        job.configRevision = "definition-two";
+      } else if (change === "source identity") {
+        job.state.sourceIdentity = "source-two";
+      } else {
+        job.enabled = false;
+      }
       response.resolve({ serverName: "reviews", events: [{ ...definition, inputSchema: true }] });
       await oldReadFinished.promise;
       expect(editor.view.events).toEqual([]);

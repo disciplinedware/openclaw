@@ -11,6 +11,7 @@ import type {
   AuthProfileAuthorizationOperations,
 } from "./authorization-enrollment.js";
 import { fenceAuthProfileAuthorizationWrite } from "./authorization-observation.js";
+import { noteAuthProfileFileWrite } from "./file-state.js";
 
 /** Uses the existing agent executor/shared actor, including native transaction/commit guards. */
 export async function enrollOwnedAuthProfileAuthorization(params: {
@@ -93,6 +94,8 @@ export async function enrollOwnedAuthProfileAuthorization(params: {
             { type: "authProfiles.enrollAuthorization", input: params.input },
             assertCurrent,
           );
+          // First-use enrollment creates the agent file; publish it before the next canonical read.
+          noteAuthProfileFileWrite(databasePath);
           settle?.(true, receipt.raw);
         } finally {
           await worker.close();

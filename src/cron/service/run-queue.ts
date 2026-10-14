@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { parseExecutionIdentityAdmissionToken } from "../../audit/execution-identity-admission.js";
 import { DEFAULT_CRON_MAX_CONCURRENT_RUNS } from "../../config/cron-limits.js";
 import { runOutsideOperatorToolGatewayAuthority } from "../../gateway/operator-tool-gateway-authority.js";
@@ -11,7 +10,6 @@ import type { OpenClawStateWorkerContext } from "../../state/openclaw-state-work
 import { runOpenClawStateWorkerOperation } from "../../state/openclaw-state-worker-store.js";
 import { clearCronJobActive } from "../active-jobs.js";
 import { describeUnavailableCronAgent } from "../agent-availability.js";
-import { resolveCronJobConfigRevision } from "../config-revision.js";
 import { CronEventClaimInvalidatedError, cronEventPayload } from "../event-source.js";
 import { captureCronMutationCommit } from "../mutation-completion.js";
 import { cronSourceIdentity, ownsCronSource } from "../source-schedule.js";
@@ -36,6 +34,11 @@ import { createCronRunHandle } from "./run-history.js";
 import type { ManualRunOptions } from "./run-options.js";
 import { skipCronJobsWithoutOwners } from "./run-owner.js";
 import {
+  createCronRunRequests,
+  projectCronRunQueueRequests,
+  type CronRunOptions as RunOptions,
+} from "./run-queue-requests.js";
+import {
   listCronRunQueueOwners,
   registerCronRunQueue,
   releaseCronRunQueue,
@@ -54,11 +57,6 @@ import { captureCronServiceMutationSource, ensureLoaded } from "./store.js";
 import { authorCronRunCompletion, executeJobCoreWithTimeout } from "./timer-job-runner.js";
 import { maybeNotifyIsolatedAgentSetupTimeout } from "./timer-notifications.js";
 import { finalizeCompletedCronRunOutcomes } from "./timer-outcome-finalization.js";
-
-type RunOptions = ManualRunOptions & {
-  mode?: CronRunMode;
-  source?: "scheduled" | "startup" | "manual" | "event";
-};
 
 /** Transient payloads and reply promises only; the worker owns queue order and capacity. */
 type CronLaunchContext = {
@@ -174,25 +172,7 @@ export async function commitCronRunRequests(
   });
   source.assertCurrent();
   options.commitGuard?.();
-  const requests = candidates.map((job) => {
-    // A released claim may be retried with a new token, but keeps its public event run ID.
-    const receiptId = (options.event ? undefined : options.runId) ?? `cron-request.${randomUUID()}`;
-    return {
-      receiptId,
-      jobId: job.id,
-      configRevision: resolveCronJobConfigRevision(job),
-      mode: options.onExit
-        ? ("on-exit" as const)
-        : options.mode === "force"
-          ? ("force" as const)
-          : ("if-enabled" as const),
-      onExitSchedule: options.onExit?.schedule,
-      event: options.event,
-      preserveSchedule: isImmediateCronRunMode(options.mode),
-      scheduleOwnershipAtMs: options.scheduleOwnershipAtMs ?? nowMs,
-      requestRunId: options.runId ?? receiptId,
-    };
-  });
+  const requests = createCronRunRequests(candidates, options, nowMs);
   const markCommitted = captureCronMutationCommit("cron.run");
   const assertRequestCurrent = () => {
     options.commitGuard?.();
@@ -313,29 +293,9 @@ async function cancelCronRunRequests(
 
 export function getCronRunQueueRequests(
   state: CronServiceState,
-  options: { includePendingEvents?: boolean } = {},
+  selection: { includePendingEvents?: boolean } = {},
 ): CronRunRequestContext[] {
-  return (
-    [...launchState(state).contexts.values()]
-      // Scheduler commands lack plugin admission; only the guarded drain may transfer events.
-      .filter(
-        (pending) =>
-          !pending.started &&
-          (options.includePendingEvents || !pending.options.event || pending.eventTransferred),
-      )
-      .map(({ receipt, options, eventTransferred }) => ({
-        receiptId: receipt.receiptId,
-        mode: options.onExit
-          ? "on-exit"
-          : options.source === "manual" || options.source === "event"
-            ? options.mode === "force"
-              ? "force"
-              : "if-enabled"
-            : "scheduled",
-        onExitSchedule: options.onExit?.schedule,
-        event: eventTransferred ? undefined : options.event,
-      }))
-  );
+  return projectCronRunQueueRequests(launchState(state).contexts.values(), selection);
 }
 
 /** Consume committed activations. No host semaphore or reservation influences selection. */
