@@ -212,7 +212,8 @@ it("lets admitted TypeSafe work finish after opt-out while preserving independen
             result: {
               shouldPruneTools: false,
               status: "unavailable",
-              reason: "retiring",
+              reason:
+                change === "provider-config" || change === "secrets" ? "retiring" : "disabled",
             },
           });
         }

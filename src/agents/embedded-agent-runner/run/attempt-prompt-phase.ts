@@ -201,9 +201,9 @@ export async function runEmbeddedAttemptPromptPhase(
       systemPromptText,
       runAbortSignal: input.runAbortController.signal,
       setActiveSessionSystemPrompt,
-      applyPromptBuildToolsAllow: (toolsAllow, omitOptionalTools) => {
+      applyPromptBuildToolsAllow: (toolsAllow, decisionIsCurrent) => {
         // Hook authority follows reachable capabilities, not just provider-visible controls.
-        return promptToolPolicy.apply(toolsAllow, omitOptionalTools).callableToolNames;
+        return promptToolPolicy.apply(toolsAllow, decisionIsCurrent).callableToolNames;
       },
       prepareSystemPrompt: async (currentSystemPrompt) => {
         const refresh = await prepared.systemPrompt.prepareToolPrompt?.(
@@ -494,6 +494,43 @@ export async function runEmbeddedAttemptPromptPhase(
         assertHostActive: promptAssembly.assertHostActive,
         withTranscriptWrite,
         getUserTranscriptContexts: sessionRuntime.boundary.getUserTranscriptContexts,
+        preparePrimaryModelRequest: () =>
+          promptToolPolicy.prepareForDispatch(async () => {
+            promptAssembly.decisionPrefilter.restrictionApplied = false;
+            promptAssembly.decisionPrefilter.status = "retained";
+            promptAssembly.decisionPrefilter.reason = "selection-changed";
+            const refresh = await prepared.systemPrompt.prepareToolPrompt?.(
+              promptToolPolicy.current.effectiveTools,
+            );
+            input.runAbortController.signal.throwIfAborted();
+            promptAssembly.assertHostActive?.();
+            const refreshedPrompt = refresh?.(activeSession.agent.state.systemPrompt);
+            const projection =
+              refreshedPrompt !== undefined && sessionRuntime.prepareSystemPromptUpdate
+                ? await sessionRuntime.prepareSystemPromptUpdate(
+                    refreshedPrompt,
+                    refresh?.freshlyRendered === true,
+                  )
+                : undefined;
+            if (refreshedPrompt !== undefined && !projection) {
+              setActiveSessionSystemPrompt(refreshedPrompt);
+            }
+            return () => ({
+              tools: activeSession.agent.state.tools.slice(),
+              systemPrompt: projection?.systemPrompt ?? activeSession.agent.state.systemPrompt,
+              ...(projection
+                ? {
+                    promptUpdate: {
+                      update: projection.update,
+                      commit: () => {
+                        projection.commit();
+                        setActiveSessionSystemPrompt(projection.systemPrompt);
+                      },
+                    },
+                  }
+                : {}),
+            });
+          }),
         onPrimaryModelRequest: (tools) => {
           logDecisionToolRequest({
             decision: promptAssembly.decisionPrefilter,

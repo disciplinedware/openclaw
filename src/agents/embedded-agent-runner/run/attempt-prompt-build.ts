@@ -105,7 +105,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
   runAbortSignal?: AbortSignal;
   applyPromptBuildToolsAllow: (
     toolsAllow: string[] | undefined,
-    omitOptionalTools?: boolean,
+    decisionIsCurrent?: () => boolean,
   ) => string[];
   prepareSystemPrompt?: (currentSystemPrompt: string) => Promise<string>;
   setActiveSessionSystemPrompt: (systemPrompt: string) => void;
@@ -248,13 +248,15 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
       assertActive: assertHostActive,
       supportsTurnScopedToolRestrictions: attempt.supportsTurnScopedToolRestrictions,
     });
-    decisionPrefilter.restrictionApplied = decisionPrefilter.shouldPruneTools;
+    if (decisionPrefilter.shouldPruneTools && decisionPrefilter.isCurrent?.()) {
+      decisionPrefilter.restrictionApplied = true;
+    }
   }
   activeAbortSignal?.throwIfAborted();
   assertHostActive?.();
   const callableToolNames = input.applyPromptBuildToolsAllow(
     effectiveToolsAllow,
-    decisionPrefilter.restrictionApplied,
+    decisionPrefilter.restrictionApplied ? decisionPrefilter.isCurrent : undefined,
   );
   // Regenerate owned capability guidance before composing hook additions, without
   // rerunning hooks or altering already-recorded conversation messages.
