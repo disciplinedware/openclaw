@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { runManagedCommand } from "../../scripts/lib/managed-child-process.mts";
+import { hasUnjoinedWork, runManagedCommand } from "../../scripts/lib/managed-child-process.mts";
 import type { VitestWorkerRun } from "../../scripts/lib/vitest-worker-run.mts";
 import { createDeferredCore } from "../../src/shared/deferred.ts";
 import { createBoundedChildOutput } from "./bounded-child-output.ts";
@@ -9,6 +9,7 @@ export async function runVitestShutdownCommand({
   maxBytes = 2 * 1024 * 1024,
   signal,
   workerRun,
+  nodeArgs = [],
   ...options
 }: Pick<
   Parameters<typeof runManagedCommand>[0],
@@ -17,6 +18,7 @@ export async function runVitestShutdownCommand({
   bin?: string;
   maxBytes?: number;
   workerRun?: VitestWorkerRun;
+  nodeArgs?: string[];
 }) {
   const stdout = createBoundedChildOutput(maxBytes);
   const stderr = createBoundedChildOutput(maxBytes);
@@ -30,13 +32,14 @@ export async function runVitestShutdownCommand({
       bin: options.bin ?? process.execPath,
       args: workerRun
         ? [
+            ...nodeArgs,
             fileURLToPath(
               new URL("../../scripts/lib/vitest-worker-bootstrap.mts", import.meta.url),
             ),
             workerRun.descriptor.directory,
             ...(options.args ?? []),
           ]
-        : options.args,
+        : [...nodeArgs, ...(options.args ?? [])],
       shell: false,
       stdio: workerRun ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
       requireProcessTreeExit: process.platform !== "win32",
@@ -77,7 +80,17 @@ export async function runVitestShutdownCommand({
       stderr: stderr.text(),
     });
     if (borrowerCompletion) {
-      workerCompletion?.reject(error);
+      const joinedCancellation =
+        cause instanceof Error &&
+        "code" in cause &&
+        (cause.code === "ABORT_ERR" || cause.code === "ETIMEDOUT") &&
+        !hasUnjoinedWork(cause);
+      if (joinedCancellation) {
+        // The command still rejects; only its positively joined artifact loan settles.
+        workerCompletion?.resolve(1);
+      } else {
+        workerCompletion?.reject(error);
+      }
       await Promise.allSettled([borrowerCompletion]);
     }
     throw error;

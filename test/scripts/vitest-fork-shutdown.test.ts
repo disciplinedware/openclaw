@@ -3,8 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { setTimeout as waitForReaper } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { expect, it, vi, type TestContext } from "vitest";
+import { afterAll, expect, it, vi, type TestContext } from "vitest";
 import { inspectManagedProcessGroup } from "../../scripts/lib/managed-child-process.mts";
+import { createVitestWorkerRun } from "../../scripts/lib/vitest-worker-run.mts";
 import { isProcessAlive } from "../helpers/process-wait.js";
 import { awaitGateBeforeSettlement, createDeferred, withinTest } from "../helpers/promise.js";
 import { createTempDirTracker } from "../helpers/temp-dir.js";
@@ -17,6 +18,16 @@ const fixtureRoots = fileURLToPath(
   new URL("../../.artifacts/vitest-fork-shutdown/", import.meta.url),
 );
 fs.mkdirSync(fixtureRoots, { recursive: true });
+
+// Compilation is admission work, not part of the fixture's shutdown deadline.
+const fixtureWorkers = createVitestWorkerRun();
+afterAll(() => fixtureWorkers.dispose());
+try {
+  await fixtureWorkers.prepare();
+} catch (error) {
+  await fixtureWorkers.dispose();
+  throw error;
+}
 
 function observeReadyLine(child: ChildProcess, line: string, ready: () => void) {
   let output = "";
@@ -69,7 +80,9 @@ async function runFixture(
 ) {
   try {
     const result = await runVitestShutdownCommand({
-      args: [...nodeArgs, fixture, root, JSON.stringify(options)],
+      args: [fixture, root, JSON.stringify(options)],
+      nodeArgs,
+      workerRun: fixtureWorkers,
       timeoutMs: 20_000,
       ...commandOptions,
     });

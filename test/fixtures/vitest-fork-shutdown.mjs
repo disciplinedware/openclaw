@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { getVitestWorkerDescriptor } from "../../scripts/lib/vitest-worker-bootstrap.mts";
+import { createVitestWorkerRun } from "../../scripts/lib/vitest-worker-run.mts";
 import { runVitestShutdownCommand } from "../helpers/vitest-shutdown-command.ts";
 
 const [root, rawOptions] = process.argv.slice(2);
@@ -284,7 +286,7 @@ it("completes the test before worker shutdown", () => {
 `,
   );
   const args = [
-    path.join(repo, "scripts/run-vitest.mjs"),
+    path.join(repo, "scripts/run-vitest.mts"),
     "run",
     "--config",
     config,
@@ -303,11 +305,20 @@ it("completes the test before worker shutdown", () => {
       `--execArgv=--heap-prof-dir=${profiles}`,
     );
   }
-  const { code, stdout, stderr } = await runVitestShutdownCommand({
-    args,
-    cwd: root,
-    env,
-  });
+  const workers = createVitestWorkerRun(env, getVitestWorkerDescriptor());
+  let result;
+  try {
+    result = await runVitestShutdownCommand({
+      args,
+      nodeArgs: ["--import", pathToFileURL(path.join(repo, "scripts/tsx.mjs")).href],
+      cwd: root,
+      env,
+      workerRun: workers,
+    });
+  } finally {
+    await workers.dispose();
+  }
+  const { code, stdout, stderr } = result;
   const output = stdout + stderr;
   // Scenario failures are data; cancellation of this supervisor is an execution failure.
   if (code > 1) {
