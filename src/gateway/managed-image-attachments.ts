@@ -78,8 +78,8 @@ import {
 } from "./managed-image-record-store.js";
 import { withManagedImageSessionRead } from "./managed-image-session-read.js";
 import {
-  encodeImageThumbnail,
-  resolveManagedImageThumbnail,
+  isStillImageBuffer,
+  readManagedImageThumbnailFromFile,
 } from "./managed-image-thumbnail-cache.js";
 import {
   createManagedOutgoingImageTicket,
@@ -921,23 +921,6 @@ export async function resolveManagedOutgoingMediaUrlDownload(params: {
   return await resolveManagedOutgoingMediaArtifactDownloadForRecord(record, stateDir);
 }
 
-async function readManagedImageThumbnailFromFile(
-  opened: Awaited<ReturnType<typeof openLocalFileSafely>>,
-  maxBytes?: number,
-): Promise<Buffer> {
-  if (maxBytes !== undefined && opened.stat.size > maxBytes) {
-    throw new Error("Managed image exceeds the preview byte limit");
-  }
-  const cacheKey = `${opened.realPath}\0${opened.stat.mtimeMs}\0${opened.stat.size}`;
-  return await resolveManagedImageThumbnail(cacheKey, async () => {
-    const source = await opened.handle.readFile();
-    if (maxBytes !== undefined && source.byteLength > maxBytes) {
-      throw new Error("Managed image exceeds the preview byte limit");
-    }
-    return await encodeImageThumbnail(source);
-  });
-}
-
 /** Read a local preview through the same transcript ownership and thumbnail cache as HTTP. */
 export async function readManagedOutgoingImageThumbnail(
   params: ManagedOutgoingMediaArtifactRequest & {
@@ -964,7 +947,7 @@ export async function readManagedOutgoingImageThumbnail(
         const thumbnail = await readManagedImageThumbnailFromFile(opened, maxBytes);
         assertCurrent();
         signal.throwIfAborted();
-        return thumbnail;
+        return thumbnail.data;
       } finally {
         await opened.handle.close();
       }
@@ -1139,6 +1122,10 @@ export async function createManagedOutgoingMediaBlocks(params: {
           const metadataLimitError = getManagedImageMetadataLimitError(metadata, label, limits);
           if (metadataLimitError) {
             if (!metadata) {
+              throw createManagedImageAttachmentError(metadataLimitError);
+            }
+            if (!(await isStillImageBuffer(originalBuffer))) {
+              // A single-frame resize would silently replace the animated original.
               throw createManagedImageAttachmentError(metadataLimitError);
             }
             const resized = await createImageProcessor().encode(originalBuffer, {
@@ -1450,8 +1437,8 @@ export async function handleManagedOutgoingMediaHttpRequest(
           let responseContentType = record.original.contentType || "application/octet-stream";
           let responseFilename = record.original.filename;
           if (variant === "thumbnail") {
-            // A full-image ticket already authorizes these original bytes; the thumbnail
-            // is a lower-fidelity representation of the same transcript attachment.
+            // The preview preserves animated originals; the same ticket authorizes
+            // both original bytes and lower-fidelity still-image thumbnails.
             const thumbnail =
               mediaKind === "image"
                 ? await readManagedImageThumbnailFromFile(opened).catch(() => null)
@@ -1464,9 +1451,12 @@ export async function handleManagedOutgoingMediaHttpRequest(
             }
             const sourceName = path.parse(responseFilename ?? "generated-image").name;
             res.statusCode = 200;
-            res.setHeader("content-length", String(thumbnail.byteLength));
-            writeMediaHeaders("image/png", `${sourceName}-thumbnail.png`);
-            res.end(req.method === "HEAD" ? undefined : thumbnail);
+            res.setHeader("content-length", String(thumbnail.data.byteLength));
+            writeMediaHeaders(
+              thumbnail.transformed ? "image/png" : responseContentType,
+              thumbnail.transformed ? `${sourceName}-thumbnail.png` : responseFilename,
+            );
+            res.end(req.method === "HEAD" ? undefined : thumbnail.data);
             return true;
           }
 

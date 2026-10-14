@@ -137,7 +137,9 @@ it.each(["image", "file", "invalid-image", "gif", "apng", "apng-metadata", "comp
                   ).data
                 : Buffer.from("original");
     if (kind === "compact") {
-      expect((await encodeImageThumbnail(source)).byteLength).toBeGreaterThan(source.byteLength);
+      expect((await encodeImageThumbnail(source)).data.byteLength).toBeGreaterThan(
+        source.byteLength,
+      );
     }
     const artifact: ArtifactRecord = {
       id: "artifact_transcript_image_fixture",
