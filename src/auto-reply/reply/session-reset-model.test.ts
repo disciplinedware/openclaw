@@ -356,10 +356,16 @@ describe("applyResetModelOverride", () => {
     await withOpenClawTestState({ layout: "state-only" }, async (state) => {
       const profileId = "team:prod";
       await prepareSharedAuthStoreOwnership(state.env);
-      await state.writeAuthProfiles({
-        version: 1,
-        profiles: { [profileId]: { type: "api_key", provider: "minimax", key: "test" } },
-      });
+      const writeCredential = (provider: string) =>
+        updateAuthProfileStoreWithLock({
+          stateDir: state.stateDir,
+          saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
+          updater: (store) => {
+            store.profiles[profileId] = { type: "api_key", provider, key: "test" };
+            return true;
+          },
+        });
+      await writeCredential("minimax");
       const agentDir = state.agentDir();
       clearRuntimeAuthProfileStoreSnapshotCore(agentDir);
       const synchronousRead = vi
@@ -383,14 +389,7 @@ describe("applyResetModelOverride", () => {
         await apply();
         expect(fixture.sessionEntry.authProfileOverride).toBe(profileId);
 
-        await updateAuthProfileStoreWithLock({
-          agentDir,
-          saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
-          updater: (store) => {
-            store.profiles[profileId] = { type: "api_key", provider: "openai", key: "test" };
-            return true;
-          },
-        });
+        await writeCredential("openai");
         await apply();
         expect(fixture.sessionEntry.authProfileOverride).toBeUndefined();
         expect(fixture.sessionEntry.authProfileOverrideSource).toBeUndefined();
