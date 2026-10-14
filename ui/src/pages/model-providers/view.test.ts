@@ -530,6 +530,26 @@ describe("renderModelProviders", () => {
     },
   );
 
+  it.each(["auth-rejected", "unavailable"] as const)(
+    "shows a native catalog %s outcome instead of only configured metadata",
+    (catalogStatus) => {
+      const container = mount(
+        props({
+          cards: [
+            card({
+              nativeAuth: { runtimeId: "claude-cli", mode: "oauth", readiness: "configured" },
+              auth: { kind: "configured" },
+              catalogStatus,
+            }),
+          ],
+        }),
+      );
+      expect(text(container.querySelector('[data-provider-id="openai"]'))).toContain(
+        catalogStatus === "auth-rejected" ? "Credentials rejected" : "Models unavailable",
+      );
+    },
+  );
+
   it("labels provider usage and session cost as global", () => {
     const container = mount(
       props({

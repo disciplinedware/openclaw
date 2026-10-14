@@ -19,6 +19,7 @@ import type { PreparedGatewayModelCatalogSnapshot } from "../server-model-catalo
 import { resolveModelProviderCapabilities } from "./model-provider-capabilities.js";
 import { resolveProviderApiKeys } from "./models-auth-status-api-keys.js";
 import { resolveConfigBoundProfileIds } from "./models-auth-status-config.js";
+import type { ModelAuthStatusProvider } from "./models-auth-status.types.js";
 
 const apiKeyUsageStatusProviders = new Set<UsageProviderId>(["clawrouter", "deepseek"]);
 
@@ -31,6 +32,7 @@ const authStatusFacts = new WeakMap<
       profiles: AuthProfileStore["profiles"];
       owner: PreparedGatewayModelCatalogSnapshot["isCurrent"];
       metadata: PreparedGatewayModelCatalogSnapshot["metadataSnapshot"];
+      authModes: PreparedGatewayModelCatalogSnapshot["authModes"];
       agentDir: string;
       workspaceDir: string;
       revision: number;
@@ -53,6 +55,25 @@ function buildModelAuthStatusFacts(
     includeUntrustedWorkspacePlugins: false,
   };
   const apiKeys = resolveProviderApiKeys(cfg, store, authAliasLookupParams);
+  const nativeProviders: ModelAuthStatusProvider[] = [];
+  for (const [runtimeId, mode] of Object.entries(preparedSnapshot.authModes)) {
+    if (typeof mode !== "object" || mode.source !== "native") {
+      continue;
+    }
+    const readiness = mode.readiness ?? "configured";
+    nativeProviders.push({
+      provider: runtimeId,
+      displayName: runtimeId,
+      status: readiness === "missing" ? "missing" : readiness === "configured" ? "ok" : "static",
+      profiles: [],
+      nativeAuth: {
+        runtimeId,
+        mode: mode.mode,
+        readiness,
+        ...(mode.message ? { message: mode.message } : {}),
+      },
+    });
+  }
   const statusProviderIds = new Set<string>();
   const expectsOAuth = new Set<string>();
   const includeConfiguredAuthProvider = (provider: string, mode: string | undefined) => {
@@ -180,6 +201,7 @@ function buildModelAuthStatusFacts(
   return {
     authAliasLookupParams,
     apiKeys,
+    nativeProviders,
     expectsOAuth,
     authHealth,
     readAuthHealth: readsExternalAuth ? readAuthHealth : undefined,
@@ -212,6 +234,7 @@ export function readModelAuthStatusFacts(
     cached.profiles === snapshot.authStore.profiles &&
     cached.owner === snapshot.isCurrent &&
     cached.metadata === snapshot.metadataSnapshot &&
+    cached.authModes === snapshot.authModes &&
     cached.agentDir === snapshot.agentDir &&
     cached.workspaceDir === snapshot.workspaceDir &&
     now < cached.facts.refreshAt
@@ -227,6 +250,7 @@ export function readModelAuthStatusFacts(
     profiles: snapshot.authStore.profiles,
     owner: snapshot.isCurrent,
     metadata: snapshot.metadataSnapshot,
+    authModes: snapshot.authModes,
     agentDir: snapshot.agentDir,
     workspaceDir: snapshot.workspaceDir,
     revision,

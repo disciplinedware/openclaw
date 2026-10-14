@@ -26,7 +26,14 @@ import type { ModelCatalogPresentation } from "../../lib/model-catalog-store.ts"
 import type { ProviderUsageRequestResult } from "../../lib/provider-usage-request.ts";
 import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 
-export type ModelProviderAuthKind = "ok" | "expiring" | "expired" | "missing" | "api-key";
+export type ModelProviderAuthKind =
+  | "ok"
+  | "expiring"
+  | "expired"
+  | "missing"
+  | "api-key"
+  | "configured"
+  | "unknown";
 
 type ModelProviderAuthSummary = {
   kind: ModelProviderAuthKind;
@@ -66,6 +73,7 @@ export type ModelProviderCard = {
   logoutTargets: ModelProviderLogoutTarget[];
   displayName: string;
   auth?: ModelProviderAuthSummary;
+  nativeAuth?: ModelAuthStatusProvider["nativeAuth"];
   profiles: ModelAuthStatusProfile[];
   /** Gateway auth owner used for priority changes to each visible profile. */
   profileProviderIds: Record<string, string>;
@@ -181,8 +189,15 @@ function addLogoutTarget(
  */
 export function buildModelProviderCards(input: ModelProviderCardsInput): ModelProviderCard[] {
   const drafts: CardDraft[] = [];
+  const nativeRuntimeIds = new Set(
+    (input.authStatus?.providers ?? []).flatMap((provider) =>
+      provider.nativeAuth ? [provider.nativeAuth.runtimeId] : [],
+    ),
+  );
+  const cardProviderId = (provider: string) =>
+    nativeRuntimeIds.has(provider) ? provider : canonicalModelAuthProviderId(provider);
   const providerDraft = (provider: string, displayName?: string) => {
-    const id = canonicalModelAuthProviderId(provider);
+    const id = cardProviderId(provider);
     return id ? ensureDraft(drafts, id, displayName || providerDisplayLabel(id)) : undefined;
   };
   const apiKeyCapabilities = new Map<string, boolean>();
@@ -251,15 +266,16 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
   }
 
   for (const provider of input.authStatus?.providers ?? []) {
-    const id = canonicalModelAuthProviderId(provider.provider);
+    const id = provider.nativeAuth?.runtimeId ?? cardProviderId(provider.provider);
     if (!id) {
       continue;
     }
     // The usage embed names the id the payload was fetched under; keep both
     // ids matchable in case it diverges from the static alias table.
-    const canonicalId = provider.usage
-      ? canonicalModelAuthProviderId(provider.usage.providerId)
-      : id;
+    const canonicalId =
+      !provider.nativeAuth && provider.usage
+        ? canonicalModelAuthProviderId(provider.usage.providerId)
+        : id;
     const ids = [...new Set([id, canonicalId])];
     const existing = findDraft(drafts, ids);
     // Fresh cards adopt the canonical usage id so icon/label lookups resolve
@@ -269,6 +285,7 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
       draft.ids.add(candidate);
     }
     draft.card.displayName = provider.displayName || draft.card.displayName;
+    draft.card.nativeAuth = provider.nativeAuth;
     draft.card.profiles.push(...provider.profiles);
     if (provider.profiles.length > 0) {
       const authProvider = provider.authProvider || provider.provider;
@@ -332,10 +349,16 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
   }
 
   for (const provider of listEffectiveModelAuthProviders(input.authStatus?.providers ?? [])) {
-    const draft = findDraft(drafts, [canonicalModelAuthProviderId(provider.provider)]);
+    const draft = findDraft(drafts, [
+      provider.nativeAuth?.runtimeId ?? cardProviderId(provider.provider),
+    ]);
     if (draft) {
       draft.card.auth = {
-        kind: provider.status === "static" ? "api-key" : provider.status,
+        kind: provider.nativeAuth
+          ? provider.nativeAuth.readiness
+          : provider.status === "static"
+            ? "api-key"
+            : provider.status,
         ...(provider.expiry?.label ? { expiryLabel: provider.expiry.label } : {}),
       };
     }
@@ -369,9 +392,7 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
     .filter(
       (draft) =>
         draft.hasModelAuth ||
-        (input.configProviders ?? []).some(
-          ({ key }) => canonicalModelAuthProviderId(key) === draft.card.id,
-        ) ||
+        (input.configProviders ?? []).some(({ key }) => cardProviderId(key) === draft.card.id) ||
         Boolean(draft.card.usage) ||
         draft.card.modelCount > 0 ||
         Boolean(draft.catalogOutcome) ||

@@ -17,6 +17,7 @@ export function canonicalModelAuthProviderId(provider: string): string {
 /** API-key-only providers have no scheduled expiry for the dashboard to monitor. */
 export function isMonitoredAuthProvider(p: ModelAuthStatusProvider): boolean {
   return (
+    p.nativeAuth !== undefined ||
     p.status === "missing" ||
     (Array.isArray(p.profiles) &&
       p.profiles.some((prof) => prof.type === "oauth" || prof.type === "token"))
@@ -31,7 +32,7 @@ export function listEffectiveModelAuthProviders(
 ): ModelAuthStatusProvider[] {
   const groups = new Map<string, ModelAuthStatusProvider[]>();
   for (const provider of providers) {
-    const id = canonicalModelAuthProviderId(provider.provider);
+    const id = provider.nativeAuth?.runtimeId ?? canonicalModelAuthProviderId(provider.provider);
     const group = groups.get(id) ?? [];
     group.push(provider);
     groups.set(id, group);

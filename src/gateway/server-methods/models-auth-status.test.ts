@@ -2,6 +2,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validateModelsAuthSetApiKeyResult } from "../../../packages/gateway-protocol/src/index.js";
+import type { PreparedAgentCredentialModes } from "../../agents/agent-auth-credential-modes.js";
 import type { AuthHealthSummary } from "../../agents/auth-health.js";
 import {
   replaceRuntimeAuthProfileStoreSnapshots,
@@ -274,6 +275,7 @@ function createOrderOptions(
 }
 
 const requireRecord = createRequireRecord("record", "expected-non-array-record");
+const EMPTY_PREPARED_AUTH_MODES: PreparedAgentCredentialModes = {};
 let preparedAuthStore: AuthProfileStore = { version: 1, profiles: {} };
 let preparedMetadataSnapshot: unknown;
 
@@ -298,7 +300,7 @@ function createPreparedOwnerSnapshot(agentId: string) {
     config,
     entries: [],
     routeVariants: [],
-    authModes: {},
+    authModes: EMPTY_PREPARED_AUTH_MODES,
     authStore: preparedAuthStore,
     authMaterializations: [],
     metadataSnapshot: preparedMetadataSnapshot as never,
@@ -436,6 +438,42 @@ function createOpenAiCodexOauthHealthSummary(): AuthHealthSummary {
 }
 
 describe("models.authStatus", () => {
+  it("projects native readiness changes without inventing profiles or replacing API auth", async () => {
+    mockHealthProvider(createStaticApiKeyProvider("anthropic"));
+    const snapshot = createPreparedOwnerSnapshot("main");
+    let authModes: PreparedAgentCredentialModes = {};
+    mocks.readPreparedCatalog.mockImplementation(async () => ({ ...snapshot, authModes }));
+    const message = "Run claude auth login with CLAUDE_CONFIG_DIR=/tmp/native-claude.";
+
+    for (const readiness of ["configured", "unknown", "missing", undefined] as const) {
+      authModes = {
+        "claude-cli": {
+          source: "native",
+          mode: "oauth",
+          ...(readiness ? { readiness } : {}),
+          message,
+        },
+      };
+      const result = await readAuthStatus();
+      expect(result.providers.find((provider) => provider.provider === "claude-cli")).toEqual({
+        provider: "claude-cli",
+        displayName: expect.any(String),
+        status: readiness === "missing" ? "missing" : readiness === "unknown" ? "static" : "ok",
+        profiles: [],
+        nativeAuth: {
+          runtimeId: "claude-cli",
+          mode: "oauth",
+          readiness: readiness ?? "configured",
+          message,
+        },
+      });
+      expect(result.providers.find((provider) => provider.provider === "anthropic")).toMatchObject({
+        status: "static",
+        profiles: [{ profileId: "anthropic:default", type: "api_key" }],
+      });
+    }
+  });
+
   it("rejects an explicit unknown agentId before reading auth state", async () => {
     const cfg = { agents: { entries: { main: {}, writer: {} } } };
     mocks.getRuntimeConfig.mockReturnValue(cfg);

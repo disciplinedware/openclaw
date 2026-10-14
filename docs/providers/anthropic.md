@@ -162,11 +162,23 @@ OpenClaw release:
         through OpenClaw's direct CLI transport. OpenClaw uses a non-secret route
         marker and never reads, persists, refreshes, selects, or forwards the
         native login tokens. Claude owns the login and token refresh lifecycle.
-        Gateway startup shares the native login availability check across agent
+        Gateway startup shares the native login metadata observation across agent
         workspaces using the same config and environment. Explicit catalog/auth
-        captures recheck availability for their own generation. Model lists also
-        recheck it in the background at most once a minute, so `claude auth login`
-        or logout after Gateway startup reaches the model picker without a restart.
+        captures recheck that observation for their own generation. On-demand model
+        reads recheck it at most once a minute. Spawn admission rechecks a missing
+        login immediately, so signing in does not require a Gateway restart.
+
+        **Models** shows the native runtime's sign-in status separately from
+        Anthropic API keys and saved accounts. **Credentials configured** means
+        local login metadata is present, not that an inference request succeeded.
+        **Not verified** means the observation was inconclusive; it does not mean
+        Claude is logged out and does not block the native route. Only confirmed
+        missing metadata requires sign-in. Follow the recovery message shown in
+        Models: run `claude auth login` as the Gateway user, preserving both
+        `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR`, including whether
+        they are unset. The message identifies the config directory that was
+        checked. OpenClaw does not read, copy, or refresh native
+        login tokens to produce this status.
 
         For native-login users, the model picker reads Claude Code's own model menu
         in the background, without sending a prompt or using an inference turn.

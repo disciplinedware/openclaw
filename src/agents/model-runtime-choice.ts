@@ -46,7 +46,8 @@ export async function prepareModelChoice(params: {
   resolvedRef?: ModelRef;
   fallbacks?: string[];
 }): Promise<PreparedModelChoice> {
-  const { withPreparedModelCatalogOwner } = await loadPreparedModelCatalog();
+  const { withPreparedModelCatalogOwner, materializePreparedModelCatalogOwner } =
+    await loadPreparedModelCatalog();
   const { resolveModelAsync } = await loadModelResolver();
   const {
     buildModelAliasIndex,
@@ -70,8 +71,9 @@ export async function prepareModelChoice(params: {
       workspaceDir: params.workspaceDir,
       readOnly: true,
     },
-    (owner) =>
-      withPluginRuntimeGenerationScope(owner, async (): Promise<PreparedModelChoice> => {
+    (capturedOwner) => {
+      let owner = capturedOwner;
+      return withPluginRuntimeGenerationScope(owner, async (): Promise<PreparedModelChoice> => {
         const defaults = resolveDefaultModelForAgent({
           cfg: owner.config,
           agentId: params.agentId,
@@ -154,11 +156,18 @@ export async function prepareModelChoice(params: {
           };
           let { decisions, entry, auth } = await decide(owner.modelCatalog);
           let renewalError: unknown;
+          if (auth.runtimeAuth?.source === "native" && auth.availability !== true) {
+            await owner.recheckNativeLogin?.({ force: true });
+            owner = materializePreparedModelCatalogOwner(owner);
+            ({ decisions, entry, auth } = await decide(owner.modelCatalog));
+          }
+          const nativeLogin = auth.runtimeAuth && owner.authModes[auth.runtimeAuth.id];
           // Native readiness can be unknown before discovery or after its client retires.
           // Acquire it once through the owner's native load before admitting the choice.
           if (
             auth.availability !== true &&
             auth.runtimeAuth?.source === "native" &&
+            !(typeof nativeLogin === "object" && nativeLogin.readiness === "missing") &&
             owner.loadNativeModelCatalog
           ) {
             const renewed = await owner
@@ -193,7 +202,8 @@ export async function prepareModelChoice(params: {
               kind: "unavailable",
               error:
                 renewalError === undefined
-                  ? `The selected account or native runtime is unavailable for ${key}. Restore that account before spawning this model.`
+                  ? (auth.unavailableMessage ??
+                    `The selected account or native runtime is unavailable for ${key}. Restore that account before spawning this model.`)
                   : `The native runtime is unavailable for ${key}: native catalog renewal failed: ${formatErrorMessage(renewalError)}`,
             };
           }
@@ -287,7 +297,8 @@ export async function prepareModelChoice(params: {
         return choices.some((fallback) => fallback.kind !== "unavailable")
           ? { kind: "automatic", ref: requested }
           : choice;
-      }),
+      });
+    },
   );
 }
 

@@ -396,6 +396,7 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
       const {
         authAliasLookupParams,
         apiKeys,
+        nativeProviders,
         expectsOAuth,
         authHealth,
         usageProviderIds,
@@ -529,6 +530,15 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
                 }
               : undefined,
         });
+      }
+      for (const native of nativeProviders) {
+        const provider = providers.find((entry) => entry.provider === native.provider);
+        if (provider) {
+          provider.nativeAuth = native.nativeAuth;
+          provider.status = native.status;
+        } else {
+          providers.push({ ...native, displayName: providerDisplayName(native.provider) });
+        }
       }
       const result: ModelAuthStatusResult = { ts: now, providers, providerCapabilities };
       respond(true, result, undefined);

@@ -6,21 +6,13 @@ import type {
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRuntimeSpies } from "../test-support/runtime-spies.js";
 
-const { probeClaudeCliAuthStatus, runUtf8CommandWithTimeout } = vi.hoisted(() => ({
-  probeClaudeCliAuthStatus: vi.fn(),
-  runUtf8CommandWithTimeout: vi.fn(),
-}));
-
-vi.mock("openclaw/plugin-sdk/process-runtime", async (importActual) => ({
-  ...(await importActual<typeof import("openclaw/plugin-sdk/process-runtime")>()),
-  runUtf8CommandWithTimeout,
-}));
+const { nativeLogin } = vi.hoisted(() => ({ nativeLogin: vi.fn() }));
 
 vi.mock("./cli-auth-seam.js", async (importActual) => {
   const actual = await importActual<typeof import("./cli-auth-seam.js")>();
   return {
     ...actual,
-    probeClaudeCliAuthStatus,
+    observeClaudeCliNativeLogin: nativeLogin,
   };
 });
 
@@ -31,14 +23,12 @@ const { createTestWizardPrompter, registerSingleProviderPlugin } =
 const { default: anthropicPlugin } = await import("./index.js");
 
 beforeEach(() => {
-  probeClaudeCliAuthStatus.mockReset();
-  runUtf8CommandWithTimeout.mockReset();
+  nativeLogin.mockReset();
   vi.unstubAllEnvs();
 });
 
 afterAll(() => {
   vi.doUnmock("./cli-auth-seam.js");
-  vi.doUnmock("openclaw/plugin-sdk/process-runtime");
   vi.resetModules();
 });
 
@@ -349,45 +339,29 @@ describe("anthropic cli migration", () => {
   });
 
   it("registered cli auth tells users to run claude auth login when local auth is missing", async () => {
-    probeClaudeCliAuthStatus.mockReturnValue({ status: "missing" });
+    nativeLogin.mockReturnValue({ readiness: "missing", message: "Run claude auth login." });
     const method = await resolveAnthropicCliAuthMethod();
 
-    await expect(method.run(createProviderAuthContext())).rejects.toThrow(
-      [
-        "Claude CLI is not authenticated on this host.",
-        "Run claude auth login first, then re-run this setup.",
-      ].join("\n"),
-    );
+    await expect(method.run(createProviderAuthContext())).rejects.toThrow("Run claude auth login.");
   });
 
   it.each(["interactive", "non-interactive"])(
-    "registered %s cli auth reports a timeout with a retry step, not a logout",
+    "registered %s cli auth permits an unknown native login",
     async (mode) => {
-      const actual =
-        await vi.importActual<typeof import("./cli-auth-seam.js")>("./cli-auth-seam.js");
-      probeClaudeCliAuthStatus.mockImplementation(actual.probeClaudeCliAuthStatus);
-      runUtf8CommandWithTimeout.mockResolvedValue({
-        code: null,
-        termination: "timeout",
-        stdout: JSON.stringify({ loggedIn: true }),
-      });
+      nativeLogin.mockReturnValue({ readiness: "unknown" });
       const method = await resolveAnthropicCliAuthMethod();
       const result =
         mode === "interactive"
           ? method.run(createProviderAuthContext())
           : method.runNonInteractive!(createProviderAuthMethodNonInteractiveContext());
-
-      await expect(result).rejects.toThrow(
-        "Could not verify the installed Claude CLI login within 10 s.\n" +
-          "Run claude auth status --json, then retry this setup.",
-      );
+      await expect(result).resolves.toBeDefined();
     },
   );
 
   it.each(["string", "legacy-collision"] as const)(
     "registered CLI setup preserves authored primary and fallback aliases (%s model)",
     async (shape) => {
-      probeClaudeCliAuthStatus.mockReturnValue({ status: "available" });
+      nativeLogin.mockReturnValue({ readiness: "configured" });
       const method = await resolveAnthropicCliAuthMethod();
       const primary = "oPuS@anthropic:work";
       const fallbacks = ["anthropic/backup", "team/fast", "sonnet"];
@@ -440,46 +414,8 @@ describe("anthropic cli migration", () => {
     },
   );
 
-  it.each(["setup", "gateway"] as const)(
-    "probes the %s native login without forwarding inherited provider credentials",
-    async (source) => {
-      const actual =
-        await vi.importActual<typeof import("./cli-auth-seam.js")>("./cli-auth-seam.js");
-      probeClaudeCliAuthStatus.mockImplementation(actual.probeClaudeCliAuthStatus);
-      runUtf8CommandWithTimeout.mockResolvedValue({
-        code: 0,
-        termination: "exit",
-        stdout: JSON.stringify({ loggedIn: true }),
-      });
-      vi.stubEnv("CLAUDE_CONFIG_DIR", "/tmp/gateway-claude-work");
-      vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-gateway-key");
-      vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "synthetic-gateway-token");
-      const method = await resolveAnthropicCliAuthMethod();
-      if (source === "setup") {
-        const ctx = createProviderAuthContext();
-        ctx.env = {
-          CLAUDE_CONFIG_DIR: "/tmp/claude-work",
-          ANTHROPIC_API_KEY: "synthetic-setup-key",
-          CLAUDE_CODE_OAUTH_TOKEN: "synthetic-setup-token",
-        };
-        await method.run(ctx);
-      } else {
-        await method.runNonInteractive!(createProviderAuthMethodNonInteractiveContext());
-      }
-
-      expect(runUtf8CommandWithTimeout).toHaveBeenCalledTimes(1);
-      const [command, options] = runUtf8CommandWithTimeout.mock.calls[0]!;
-      expect(command).toEqual(["claude", "auth", "status", "--json"]);
-      expect(options.baseEnv.CLAUDE_CONFIG_DIR).toBe(
-        source === "setup" ? "/tmp/claude-work" : "/tmp/gateway-claude-work",
-      );
-      expect(options.baseEnv.ANTHROPIC_API_KEY).toBeUndefined();
-      expect(options.baseEnv.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
-    },
-  );
-
   it("registered non-interactive cli auth keeps anthropic fallbacks and selects claude-cli runtime", async () => {
-    probeClaudeCliAuthStatus.mockReturnValue({ status: "available" });
+    nativeLogin.mockReturnValue({ readiness: "configured" });
     const method = await resolveAnthropicCliAuthMethod();
     const config = {
       agents: {
@@ -523,7 +459,7 @@ describe("anthropic cli migration", () => {
   });
 
   it("registered cli sign-in keeps selected IDs without seeding a static menu", async () => {
-    probeClaudeCliAuthStatus.mockReturnValue({ status: "available" });
+    nativeLogin.mockReturnValue({ readiness: "configured" });
     const method = await resolveAnthropicCliAuthMethod();
     const deprecatedRef = "anthropic/claude-opus-4-8";
 
@@ -553,39 +489,12 @@ describe("anthropic cli migration", () => {
   });
 
   it("registered non-interactive cli auth propagates missing local auth", async () => {
-    probeClaudeCliAuthStatus.mockReturnValue({ status: "missing" });
+    nativeLogin.mockReturnValue({ readiness: "missing", message: "Run claude auth login." });
     const method = await resolveAnthropicCliAuthMethod();
     const ctx = createProviderAuthMethodNonInteractiveContext();
 
-    await expect(method.runNonInteractive?.(ctx)).rejects.toThrow(
-      [
-        "Claude CLI is not authenticated on this host.",
-        "Run claude auth login first, then re-run this setup.",
-      ].join("\n"),
-    );
+    await expect(method.runNonInteractive?.(ctx)).rejects.toThrow("Run claude auth login.");
     expect(ctx.runtime.error).not.toHaveBeenCalled();
     expect(ctx.runtime.exit).not.toHaveBeenCalled();
   });
-
-  it.each(["interactive", "non-interactive"])(
-    "registered %s cli auth reports an unreadable probe",
-    async (mode) => {
-      probeClaudeCliAuthStatus.mockReturnValue({ status: "unreadable" });
-      const method = await resolveAnthropicCliAuthMethod();
-      const ctx = createProviderAuthMethodNonInteractiveContext();
-
-      const result =
-        mode === "interactive"
-          ? method.run(createProviderAuthContext())
-          : method.runNonInteractive!(ctx);
-      await expect(result).rejects.toThrow(
-        [
-          "Could not verify the installed Claude CLI login.",
-          "Run claude auth status --json, then retry this setup.",
-        ].join("\n"),
-      );
-      expect(ctx.runtime.error).not.toHaveBeenCalled();
-      expect(ctx.runtime.exit).not.toHaveBeenCalled();
-    },
-  );
 });
