@@ -11,9 +11,12 @@ import { createStandaloneArtifactAdapter } from "./lib/bun-standalone-artifacts.
 import { createStandaloneCodegenAdapter } from "./lib/bun-standalone-codegen.mjs";
 import {
   assertStandaloneCompiler,
+  assertStandalonePlatform,
   createStandaloneManifest,
   parseStandaloneArguments,
   pruneStandaloneRuntime,
+  relativeStandaloneEntry,
+  resolveStandaloneBuildIdentity,
   sha256File,
   STANDALONE_USAGE,
 } from "./lib/bun-standalone-contract.mjs";
@@ -33,6 +36,7 @@ if (options.help) {
   console.log(STANDALONE_USAGE);
   process.exit(0);
 }
+assertStandalonePlatform(process.platform);
 if (!globalThis.Bun) {
   throw new Error(`Run this builder with Bun.\n${STANDALONE_USAGE}`);
 }
@@ -101,6 +105,21 @@ console.log(`Building ${mode} standalone in ${outputRoot}`);
     path.join(runtimeRoot, "scripts/windows-cmd-helpers.mjs"),
   );
 }
+
+let runtimeBuildInfo;
+try {
+  runtimeBuildInfo = JSON.parse(
+    fs.readFileSync(path.join(runtimeRoot, "dist/build-info.json"), "utf8"),
+  );
+} catch (error) {
+  throw new Error("Missing or invalid runtime/dist/build-info.json. Run pnpm build.", {
+    cause: error,
+  });
+}
+const openclawIdentity = resolveStandaloneBuildIdentity(
+  runtimeBuildInfo,
+  JSON.parse(fs.readFileSync(path.join(runtimeRoot, "package.json"), "utf8")).version,
+);
 
 // The existing install owner governs CLI, Gateway/UI and automatic update admission.
 fs.writeFileSync(
@@ -204,7 +223,7 @@ const workers = prepareStandaloneWorkers({
   moduleEntries,
   parse,
 });
-moduleEntries.push(path.relative(runtimeRoot, workers.workerThreadsShim));
+moduleEntries.push(path.relative(runtimeRoot, workers.workerThreadsShim).split(path.sep).join("/"));
 const moduleInputs = new Map();
 const outputNames = new Map();
 for (const entry of new Set(moduleEntries)) {
@@ -340,11 +359,12 @@ import path from "node:path";
 const root = path.join(path.dirname(process.execPath), "runtime");
 const workers = {${workerMap}};
 const moduleEntries = new Set(${JSON.stringify(moduleEntries)});
+const relativeStandaloneEntry = ${relativeStandaloneEntry.toString()};
 let args = process.argv.slice(2);
 if (args[0] === "--no-install") args = args.slice(1);
-if (args[0]?.startsWith(root + "/")) {
+const relative = relativeStandaloneEntry(root, args[0]);
+if (relative !== undefined) {
   const entry = args.shift();
-  const relative = path.relative(root, entry);
   const load = workers[relative] ?? (moduleEntries.has(relative) ? () => import(entry) : undefined);
   if (!load) throw new Error("Unsupported standalone child: " + entry);
   process.argv = [process.execPath, entry, ...args];
@@ -394,11 +414,11 @@ const result = await Bun.build({
       name: "openclaw-standalone-paths",
       setup(build) {
         build.onLoad({ filter: /\.[cm]?js$/ }, async ({ path: filename }) => {
-          if (!filename.startsWith(runtimeRoot + "/")) {
+          const relative = relativeStandaloneEntry(runtimeRoot, filename);
+          if (relative === undefined) {
             return undefined;
           }
           let contents = await fs.promises.readFile(filename, "utf8");
-          const relative = path.relative(runtimeRoot, filename);
           contents = workers.rewriteInlineWorkers(filename, contents);
           const artifact = artifacts.transform({ filename, contents });
           contents = artifact.contents;
@@ -621,10 +641,6 @@ if (compiled.status !== 0) {
   throw new Error(`Standalone compilation failed (${compiled.status})`);
 }
 const pruning = pruneStandaloneRuntime(runtimeRoot);
-const commit = spawnSync("git", ["rev-parse", "HEAD"], { cwd: sourceRoot, encoding: "utf8" });
-if (commit.status !== 0) {
-  throw new Error("Cannot determine the OpenClaw source commit.");
-}
 const manifest = await createStandaloneManifest({
   outputRoot,
   mode,
@@ -634,10 +650,7 @@ const manifest = await createStandaloneManifest({
     commit: Bun.revision,
     executableSha256: await sha256File(process.execPath),
   },
-  openclaw: {
-    version: JSON.parse(fs.readFileSync(path.join(runtimeRoot, "package.json"), "utf8")).version,
-    commit: commit.stdout.trim(),
-  },
+  openclaw: openclawIdentity,
   embedded: {
     workers: workerEntries.length,
     plugins: new Set(

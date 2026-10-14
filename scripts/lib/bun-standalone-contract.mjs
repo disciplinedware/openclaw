@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { normalizeBuildCommit } from "../write-build-info.ts";
 
 export const STANDALONE_USAGE =
   "Usage: bun scripts/build-bun-standalone.mjs <fresh-output-directory> [--bytecode|--compile-aot]\n" +
@@ -30,6 +31,52 @@ export function assertStandaloneCompiler(mode, help) {
         "build an AOT-capable Bun explicitly to experiment with AOT.",
     );
   }
+}
+
+export function assertStandalonePlatform(platform) {
+  if (platform !== "darwin" && platform !== "linux") {
+    throw new Error("Build on macOS or Linux; Windows standalone artifacts are not supported yet.");
+  }
+}
+
+export function relativeStandaloneEntry(root, filename) {
+  if (typeof filename !== "string" || !path.isAbsolute(filename)) {
+    return undefined;
+  }
+  const relative = path.relative(root, filename);
+  if (
+    !relative ||
+    relative === ".." ||
+    relative.startsWith(".." + path.sep) ||
+    path.isAbsolute(relative)
+  ) {
+    return undefined;
+  }
+  return relative.split(path.sep).join("/");
+}
+
+export function resolveStandaloneBuildIdentity(buildInfo, packageVersion) {
+  if (
+    !buildInfo ||
+    typeof buildInfo.version !== "string" ||
+    !buildInfo.version.trim() ||
+    typeof buildInfo.commit !== "string"
+  ) {
+    throw new Error("Missing standalone runtime identity in dist/build-info.json. Run pnpm build.");
+  }
+  const version = buildInfo.version.trim();
+  let commit;
+  try {
+    commit = normalizeBuildCommit(buildInfo.commit, "dist/build-info.json commit");
+  } catch (error) {
+    throw new Error(`${error.message} Run pnpm build.`, { cause: error });
+  }
+  if (typeof packageVersion !== "string" || version !== packageVersion.trim()) {
+    throw new Error(
+      "dist/build-info.json version does not match runtime/package.json. Run pnpm build.",
+    );
+  }
+  return { version, commit };
 }
 
 function standaloneMacosEntitlements(mode) {

@@ -4,10 +4,13 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertStandaloneCompiler,
+  assertStandalonePlatform,
   createStandaloneManifest,
   describeStandaloneRuntime,
   parseStandaloneArguments,
   pruneStandaloneRuntime,
+  relativeStandaloneEntry,
+  resolveStandaloneBuildIdentity,
 } from "../../scripts/lib/bun-standalone-contract.mjs";
 
 const roots: string[] = [];
@@ -46,6 +49,46 @@ describe("standalone build interface", () => {
     expect(() =>
       assertStandaloneCompiler("aot", "  --compile-aot  Compile native code"),
     ).not.toThrow();
+  });
+
+  it("limits standalone artifacts to supported build hosts", () => {
+    expect(() => assertStandalonePlatform("darwin")).not.toThrow();
+    expect(() => assertStandalonePlatform("linux")).not.toThrow();
+    expect(() => assertStandalonePlatform("win32")).toThrow(
+      "Build on macOS or Linux; Windows standalone artifacts are not supported yet.",
+    );
+  });
+
+  it.each([
+    ["/build/runtime", "/build/runtime/dist/worker.js", "dist/worker.js"],
+    ["/build/runtime", "/build/runtime/dist/../worker.js", "worker.js"],
+    ["/build/runtime", "/build/runtime-other/dist/worker.js", undefined],
+    ["/build/runtime", "/build/runtime/../worker.js", undefined],
+    ["/build/runtime", "/build/runtime", undefined],
+    ["/build/runtime", "dist/worker.js", undefined],
+  ])("maps contained runtime paths to POSIX entry keys (%s, %s)", (root, filename, expected) => {
+    expect(relativeStandaloneEntry(root, filename)).toBe(expected);
+  });
+
+  it("normalizes canonical runtime provenance", () => {
+    expect(
+      resolveStandaloneBuildIdentity(
+        { version: "2026.10.3", commit: "A".repeat(40), builtAt: "2026-10-14T00:00:00.000Z" },
+        "2026.10.3",
+      ),
+    ).toEqual({ version: "2026.10.3", commit: "a".repeat(40) });
+  });
+
+  it.each([
+    [undefined, "2026.10.3"],
+    [{ version: "", commit: "a".repeat(40) }, "2026.10.3"],
+    [{ version: "2026.10.3", commit: null }, "2026.10.3"],
+    [{ version: "2026.10.3", commit: "abc123" }, "2026.10.3"],
+    [{ version: "2026.10.2", commit: "a".repeat(40) }, "2026.10.3"],
+  ])("refuses missing, invalid, or mixed runtime provenance (%s)", (buildInfo, packageVersion) => {
+    expect(() => resolveStandaloneBuildIdentity(buildInfo, packageVersion)).toThrow(
+      "Run pnpm build",
+    );
   });
 
   it("prunes declarations and maps while preserving runtime assets and links", () => {

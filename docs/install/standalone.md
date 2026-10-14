@@ -30,10 +30,15 @@ scripts/stage-openclaw-bun.sh ./standalone-compiler darwin arm64
 ./standalone-jit/openclaw --help
 ```
 
-This example targets Apple silicon. Build on the platform and architecture where
-the result will run; choose a matching pinned Bun artifact. The staging helper
+This example targets Apple silicon. The builder supports macOS and Linux hosts;
+Windows standalone builds are not supported. Build on the platform and architecture
+where the result will run; choose a matching pinned Bun artifact. The staging helper
 verifies the download's checksums and Bun identity. Use a fresh output directory
 for each build so an earlier runtime snapshot cannot leak into the result.
+
+The manifest reads the OpenClaw version and commit from `dist/build-info.json`.
+Rerun `pnpm build` after source changes; changing the checkout alone does not update
+the identity of an existing runtime build.
 
 On macOS, database operations also require a supported SQLite library. Provision
 one through the packaging owner or follow
@@ -74,18 +79,18 @@ bytecode. An AOT artifact needs its own runtime and signing qualification.
 `manifest.json` describes the output for packaging and verification. Its version
 1 contract is:
 
-| Field           | Contents                                                                 |
-| --------------- | ------------------------------------------------------------------------ |
-| `schemaVersion` | Manifest schema version, `1`.                                            |
-| `mode`          | `jit`, `bytecode`, or `aot`.                                             |
-| `target`        | `platform` and `arch` for the compiled executable.                       |
-| `bun`           | Compiler `version`, `revision`, `commit`, and `executableSha256`.        |
-| `openclaw`      | OpenClaw `version` and source `commit`.                                  |
-| `executable`    | Relative `path`, `sizeBytes`, and `sha256`.                              |
-| `runtime`       | Relative `path`, `sizeBytes`, `sha256`, `fileCount`, and `symlinkCount`. |
-| `embedded`      | Counts for `workers`, `plugins`, `modules`, and `inlineWorkers`.         |
-| `pruning`       | Applied `patterns`, `removedFiles`, and `removedBytes`.                  |
-| `macos`         | `hardenedRuntime` and the selected mode's `entitlements` map.            |
+| Field           | Contents                                                                  |
+| --------------- | ------------------------------------------------------------------------- |
+| `schemaVersion` | Manifest schema version, `1`.                                             |
+| `mode`          | `jit`, `bytecode`, or `aot`.                                              |
+| `target`        | `platform` and `arch` for the compiled executable.                        |
+| `bun`           | Compiler `version`, `revision`, `commit`, and `executableSha256`.         |
+| `openclaw`      | OpenClaw `version` and source `commit`.                                   |
+| `executable`    | Relative `path`, `sizeBytes`, and `sha256`.                               |
+| `runtime`       | Relative `path`, `sizeBytes`, `sha256`, `fileCount`, and `symlinkCount`.  |
+| `embedded`      | Counts for `workers`, `plugins`, `modules`, and `inlineWorkers`.          |
+| `pruning`       | Applied `patterns`, `removedFiles`, and `removedBytes`.                   |
+| `macos`         | macOS only: `hardenedRuntime` and the selected mode's `entitlements` map. |
 
 Keep compiler provenance when signing or packaging the executable. Signing
 changes its bytes: refresh `executable.sizeBytes` and `executable.sha256` after
