@@ -145,6 +145,11 @@ Native dependencies must match the target platform and architecture. A
 standalone build does not make an arbitrary plugin portable, provide a signing
 identity, install a service, or migrate user state during compilation.
 
+The executable is an OpenClaw launcher, not a general-purpose Bun CLI. The
+builder embeds known worker and child programs. Plugins that use
+`process.execPath` to run arbitrary scripts or Bun flags need a separate runtime
+or their own standalone integration and qualification.
+
 ## Qualify an artifact before packaging
 
 CI covers the builder's inexpensive pure contracts: worker discovery, manifest
