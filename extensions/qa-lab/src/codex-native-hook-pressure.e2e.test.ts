@@ -51,6 +51,7 @@ type ProcessRow = ProcessIdentity & {
   argv: string[];
   rss: number;
   ticks: number;
+  nice: number;
 };
 
 const processKey = (row: ProcessIdentity) => `${row.pid}:${row.startTimeTicks}`;
@@ -91,6 +92,7 @@ async function readProcess(pid: number): Promise<ProcessRow | undefined> {
       argv: cmdline.split("\0"),
       rss: Number(/VmRSS:\s+(\d+)/.exec(status)?.[1] ?? 0) * 1024,
       ticks: Number(fields[11]) + Number(fields[12]),
+      nice: Number(fields[16]),
     };
   } catch (error) {
     if (!isProcessGone(error)) {
@@ -275,16 +277,18 @@ export default {
       id: "hook-completion-proof",
       description: "Captures native hook completion status for pressure failure diagnostics.",
       streams: ["codex_app_server.hook"],
-      phases: ["completed"],
-      payload: "metadata",
+      phases: ["started", "completed"],
+      payload: "full",
       handle(event) {
-        hooks.push({ eventName: event.data.eventName, status: event.data.status, durationMs: event.data.durationMs });
+        hooks.push({ atMs: event.ts, observedAtMs: Date.now(), runId: event.runId, ...event.data });
       },
     });
     if ("${selection}" !== "none") api.on("before_tool_call", async (event) => {
       const serialized = JSON.stringify(event.params);
-      calls.push({ toolName: event.toolName, denied: serialized.includes("PRESSURE_DENIED") });
+      const call = { toolName: event.toolName, toolCallId: event.toolCallId, denied: serialized.includes("PRESSURE_DENIED"), enteredAtMs: Date.now() };
+      calls.push(call);
       await new Promise((resolve) => setTimeout(resolve, 75));
+      call.completedAtMs = Date.now();
       return serialized.includes("PRESSURE_DENIED")
         ? { block: true, blockReason: "PRESSURE_POLICY_DENIED" }
         : undefined;
@@ -528,20 +532,18 @@ export default {
           const cpuTickRate = Number((await execFileAsync("getconf", ["CLK_TCK"])).stdout.trim());
           expect(cpuTickRate).toBeGreaterThan(0);
           const status = await fs.readFile(`/proc/${gateway.pid}/status`, "utf8");
-          console.log(
-            "NATIVE_HOOK_HARDWARE " +
-              JSON.stringify({
-                node: registry.nodeVersion,
-                kernel: os.release(),
-                cpuModel: os.cpus()[0]?.model,
-                logicalCpus: os.cpus().length,
-                availableParallelism: os.availableParallelism(),
-                affinity: /Cpus_allowed_list:\s*(.+)/.exec(status)?.[1],
-                cpuTickRate,
-                compileCacheConfigured: Boolean(process.env.NODE_COMPILE_CACHE),
-                compileCacheDisabled: process.env.NODE_DISABLE_COMPILE_CACHE === "1",
-              }),
-          );
+          const hardware = {
+            node: registry.nodeVersion,
+            kernel: os.release(),
+            cpuModel: os.cpus()[0]?.model,
+            logicalCpus: os.cpus().length,
+            availableParallelism: os.availableParallelism(),
+            affinity: /Cpus_allowed_list:\s*(.+)/.exec(status)?.[1],
+            cpuTickRate,
+            compileCacheConfigured: Boolean(process.env.NODE_COMPILE_CACHE),
+            compileCacheDisabled: process.env.NODE_DISABLE_COMPILE_CACHE === "1",
+          };
+          console.log("NATIVE_HOOK_HARDWARE " + JSON.stringify(hardware));
           for (const count of selection === "matched" ? [1, 5, 20, 1] : [5]) {
             const mode = selection === "matched" && reports.length === 3 ? "deny" : "allow";
             scenario = {
@@ -561,6 +563,11 @@ export default {
             const relaySamples = new Map<
               string,
               {
+                pid: number;
+                startTimeTicks: number;
+                argv: string[];
+                nice: number;
+                lastState: string;
                 firstAtMs: number;
                 lastAtMs: number;
                 peakRss: number;
@@ -586,6 +593,11 @@ export default {
                   relayIdentities.add(key);
                   const previous = relaySamples.get(key);
                   relaySamples.set(key, {
+                    pid: relay.pid,
+                    startTimeTicks: relay.startTimeTicks,
+                    argv: relay.argv,
+                    nice: relay.nice,
+                    lastState: relay.state,
                     firstAtMs: previous?.firstAtMs ?? sampledAtMs,
                     lastAtMs: sampledAtMs,
                     peakRss: Math.max(previous?.peakRss ?? 0, relay.rss),
@@ -647,7 +659,37 @@ export default {
                 }
               }
             }
+            const processEvidence = {
+              hardware,
+              scenarioId: scenario.id,
+              selection,
+              count,
+              mode,
+              turnElapsedMs,
+              peakRelays,
+              peakRelayRss,
+              peakTreeRss,
+              sampledRelays: [...relaySamples.values()].map((sample) => ({
+                pid: sample.pid,
+                startTimeTicks: sample.startTimeTicks,
+                argv: sample.argv,
+                nice: sample.nice,
+                lastState: sample.lastState,
+                firstObservedAtMs: performance.timeOrigin + sample.firstAtMs,
+                lastObservedAtMs: performance.timeOrigin + sample.lastAtMs,
+                observedWindowMs: sample.lastAtMs - sample.firstAtMs,
+                peakRss: sample.peakRss,
+                observedCpuMs: ((sample.lastTicks - sample.firstTicks) * 1000) / cpuTickRate,
+              })),
+              observedGatewayCpuMs:
+                gatewayFirstTicks === undefined || gatewayLastTicks === undefined
+                  ? undefined
+                  : ((gatewayLastTicks - gatewayFirstTicks) * 1000) / cpuTickRate,
+              healthMs,
+              healthErrors,
+            };
             if (failures.length > 0) {
+              console.log("NATIVE_HOOK_PRESSURE_FAILURE " + JSON.stringify(processEvidence));
               throw new AggregateError(failures, "native hook pressure scenario failed");
             }
             const calls = (await readCalls()).slice(callsBefore);
@@ -659,6 +701,7 @@ export default {
                 utilityRequests,
                 tools: [...wireTools.values()].map(({ name, type }) => ({ name, type })),
                 peakRelays,
+                processEvidence,
                 registry: await (
                   await fetch(`${gateway.baseUrl}/qa/native-hook-pressure`, {
                     headers: { Authorization: `Bearer ${gateway.token}` },
