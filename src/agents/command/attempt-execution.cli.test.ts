@@ -108,7 +108,8 @@ vi.mock("../cli-runner.js", () => ({
   runCliAgent: runCliAgentMock,
 }));
 
-vi.mock("../cli-runner/execute.runtime.js", () => ({
+vi.mock("../cli-runner/execute.runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../cli-runner/execute.runtime.js")>()),
   executePreparedCliRun: executePreparedCliRunMock,
 }));
 
