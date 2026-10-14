@@ -208,6 +208,7 @@ export function repairStateSchema(
       pathname,
       () => {
         const previousVersion = readStateSchemaContentVersion(db);
+        applied.push(...recoverOrphanTaskDeliveryRows(db, pathname));
         if (previousVersion !== OPENCLAW_STATE_SCHEMA_VERSION) {
           openClawStateMigrationAssertions.get(previousVersion)?.(db, { pathname });
           assertSqliteIntegrity(db, pathname);
@@ -219,7 +220,6 @@ export function repairStateSchema(
             return applied;
           }
         }
-        applied.push(...recoverOrphanTaskDeliveryRows(db, pathname));
         const includeAgentDeletionJournal =
           tableExists(db, "agent_deletion_journal") || hasPreJournalStateSchema(db);
         const preAuditSchema = previousVersion === 1 && !tableExists(db, "audit_events");

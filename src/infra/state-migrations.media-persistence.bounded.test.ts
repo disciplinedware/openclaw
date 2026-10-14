@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { makeTempDir } from "../../test/helpers/temp-dir.js";
 import { withDoctorSqliteMaintenanceLock } from "../commands/doctor-sqlite-maintenance-lock.js";
+import { resolveSqliteTranscriptArchiveDirectory } from "../config/sessions/session-accessor.sqlite-scope.js";
 import { EMPTY_LEGACY_SESSION_SURFACES } from "../plugins/legacy-session-surfaces.types.js";
 import { registerOpenClawAgentDatabase } from "../state/openclaw-agent-db-registry.js";
 import {
@@ -46,6 +47,13 @@ it("keeps unrelated legacy content and planner maintenance outside a version mig
     data: { messagesSnapshot: [{ role: "user", MediaPath: "/media/retained.png" }] },
   });
   const archive = Buffer.from(`${event}\n`);
+  const archiveName = "retained.jsonl.deleted.2026-07-24T01-02-03.000Z";
+  const archivePath = path.join(
+    resolveSqliteTranscriptArchiveDirectory({ agentId: "main", path: pathname }),
+    archiveName,
+  );
+  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+  fs.writeFileSync(archivePath, archive);
   {
     using source = openNodeSqliteDatabase(pathname);
     source.exec(OPENCLAW_AGENT_SCHEMA_V25_SQL);
@@ -70,8 +78,8 @@ it("keeps unrelated legacy content and planner maintenance outside a version mig
     source
       .prepare(`INSERT INTO session_transcript_archives
         (session_id, generation, session_key, reason, encoding, archive_blob, archive_sha256, archive_name, created_at)
-        VALUES ('retained', 'generation', 'agent:main:retained', 'deleted', 'identity', ?, ?, 'retained.jsonl.deleted.2026-07-24T01-02-03.000Z', 1)`)
-      .run(archive, createHash("sha256").update(archive).digest("hex"));
+        VALUES ('retained', 'generation', 'agent:main:retained', 'deleted', 'identity', ?, ?, ?, 1)`)
+      .run(archive, createHash("sha256").update(archive).digest("hex"), archiveName);
     source.exec(`
       ANALYZE;
       UPDATE sqlite_stat1 SET stat = '7 1 1 1 1' WHERE idx = 'idx_agent_trajectory_runtime_run';
@@ -148,6 +156,7 @@ it("keeps unrelated legacy content and planner maintenance outside a version mig
     ],
     warnings: [],
   });
+  expect(fs.readFileSync(archivePath)).toEqual(archive);
   {
     using migrated = openNodeSqliteDatabase(pathname, { readOnly: true });
     expect(migrated.prepare("PRAGMA user_version").get()?.user_version).toBe(
@@ -204,6 +213,10 @@ it("keeps unrelated legacy content and planner maintenance outside a version mig
   );
   {
     using sameVersion = openNodeSqliteDatabase(pathname, { readOnly: true });
+    expect(
+      sameVersion.prepare("SELECT archive_blob FROM session_transcript_archives").get()
+        ?.archive_blob,
+    ).toEqual(new Uint8Array(fs.readFileSync(archivePath)));
     expect(
       JSON.parse(
         String(sameVersion.prepare("SELECT entry_json FROM session_nodes").get()?.entry_json),
