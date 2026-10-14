@@ -179,6 +179,7 @@ describe("PostgreSQL schema generation", () => {
         "portability-report.md",
         "state.postgres.sql",
         "state-v22-v23.postgres.sql",
+        "runtime.ts",
       ].toSorted(),
     );
     expect(
