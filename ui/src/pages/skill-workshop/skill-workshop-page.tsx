@@ -85,9 +85,9 @@ class SkillWorkshopPageState {
 
   private syncScope() {
     const context = this.context;
-    const snapshot = context?.gateway.snapshot;
-    const client = snapshot?.phase === "connected" ? snapshot.client : null;
-    const agentId = context && client ? resolveWorkshopAgentId(context) : null;
+    const snapshot = context.gateway.snapshot;
+    const client = snapshot.phase === "connected" ? snapshot.client : null;
+    const agentId = client ? resolveWorkshopAgentId(context) : null;
     if (client === (this.scope?.client ?? null) && agentId === (this.scope?.agentId ?? null)) {
       return;
     }
@@ -112,7 +112,7 @@ class SkillWorkshopPageState {
     if (!scope) {
       return;
     }
-    void this.context?.runtimeConfig.ensureLoaded();
+    void this.context.runtimeConfig.ensureLoaded();
     this.loading = true;
     this.error = null;
     this.changed();
@@ -133,7 +133,7 @@ class SkillWorkshopPageState {
       // A chat notice links here with ?skill=<name>; open it in whichever list holds it.
       const requested = this.viewer
         ? null
-        : new URLSearchParams(this.context?.router.getState().location.search).get("skill");
+        : new URLSearchParams(this.context.router.getState().location.search).get("skill");
       const requestedLive = snapshot.list.skills.some((skill) => skill.name === requested);
       if (
         requested &&
@@ -247,7 +247,7 @@ class SkillWorkshopPageState {
 
   private readonly mutate = async (mutation: WorkshopMutation, key: string) => {
     const scope = this.scope;
-    const access = resolveWorkshopAccess(this.context?.gateway.snapshot);
+    const access = resolveWorkshopAccess(this.context.gateway.snapshot);
     const allowed =
       mutation.method === "skills.workshop.archive" ? access.canArchive : access.canRestore;
     if (!scope || !allowed || this.pendingAction) {
@@ -286,23 +286,14 @@ class SkillWorkshopPageState {
 
   private readonly setMode = async (mode: SkillWorkshopMode) => {
     const context = this.context;
-    const runtimeConfig = context?.runtimeConfig;
-    if (
-      !context ||
-      !runtimeConfig ||
-      this.modeBusy ||
-      !resolveWorkshopAccess(context.gateway.snapshot).canSetMode
-    ) {
+    if (this.modeBusy || !resolveWorkshopAccess(context.gateway.snapshot).canSetMode) {
       return;
     }
     this.modeBusy = true;
     this.modeError = null;
     this.changed();
     try {
-      const error = await setWorkshopMode(runtimeConfig, mode);
-      if (this.context === context) {
-        this.modeError = error;
-      }
+      this.modeError = await setWorkshopMode(context.runtimeConfig, mode);
     } finally {
       this.modeBusy = false;
       this.changed();
@@ -312,11 +303,11 @@ class SkillWorkshopPageState {
   private readonly learn = async () => {
     const context = this.context;
     const scope = this.scope;
-    if (!context || !scope || this.learningBusy) {
+    if (!scope || this.learningBusy) {
       return;
     }
     const { client, agentId } = scope;
-    const isCurrent = () => this.context === context && this.scope === scope;
+    const isCurrent = () => this.scope === scope;
     const message = SKILL_WORKSHOP_LEARNING_PROMPT;
     const params = {
       agentId,

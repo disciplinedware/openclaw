@@ -618,7 +618,7 @@ export function DevicesPage(props: { routeData?: DevicesRouteData }) {
   controller.bindEvents();
   const config = projectRuntimeConfig(context.runtimeConfig);
   createEffect(
-    () => props.routeData,
+    createMemo(() => props.routeData),
     (data) => controller.setRouteData(data),
   );
   onCleanup(() => controller.dispose());

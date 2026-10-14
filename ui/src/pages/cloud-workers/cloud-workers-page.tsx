@@ -62,14 +62,13 @@ export function CloudWorkersPage() {
   });
   void context.runtimeConfig.ensureLoaded();
   const catalogKey = createMemo(
-    () => {
-      return [
+    () =>
+      [
         gateway.snapshot?.client,
         gateway.snapshot?.phase,
         gateway.epoch,
         configProjection.read().state.configSnapshot?.appliedConfigHash,
-      ] as const;
-    },
+      ] as const,
     { equals: (previous, next) => previous.every((value, index) => value === next[index]) },
   );
   createEffect(catalogKey, (key) => {
@@ -121,9 +120,7 @@ export function CloudWorkersPage() {
     return resolveEditableSnapshotConfig(configProjection.read().state.configSnapshot);
   }
 
-  function profiles(): ConfiguredCloudWorkerProfile[] {
-    return readCloudWorkerProfiles(editableConfig());
-  }
+  const profiles = createMemo(() => readCloudWorkerProfiles(editableConfig()));
 
   function hasManageAccess(): boolean {
     return canCallGatewayMethod(gateway.snapshot, "config.patch", "operator.admin");
@@ -180,7 +177,9 @@ export function CloudWorkersPage() {
     if (!scope || !view.editor || !config || !canManage()) {
       return;
     }
-    const currentProfiles = Object.fromEntries(profiles().map((profile) => [profile.id, true]));
+    const currentProfiles = Object.fromEntries(
+      readCloudWorkerProfiles(config).map((profile) => [profile.id, true]),
+    );
     const validationError = validateCloudWorkerDraft(draft, currentProfiles, editingId);
     if (validationError) {
       configSave.update({ error: t(`cloudWorkersPage.errors.${validationError}`) });

@@ -27,7 +27,7 @@ export function AppsPage(props: AppsPageProps) {
   const context = useApplication();
   const gateway = projectGateway(context.gateway);
   const selection = projectAgentSelection(context.agentSelection);
-  const appSearch = () => props.appSearch ?? "";
+  const appSearch = createMemo(() => props.appSearch ?? "");
   const appRoute = createMemo(() => mcpAppRouteFromSearch(appSearch()));
   const catalog = useMcpAppCatalog(
     context,
