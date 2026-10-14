@@ -338,7 +338,10 @@ async function publishPreparedModelRuntimeCatalogReplacement(
           "A remote catalog owner retired before publication",
         );
       }
-      // Model-neutral config changes during preparation are best effort, not a new build epoch.
+      // Keep new-run policy current without rebuilding model-neutral catalog facts.
+      for (const [index, candidate] of candidates.entries()) {
+        advancePreparedModelRuntimeOwnerConfig(candidate, claims[index]!.owner.input.config);
+      }
       const commitDispatch = host.replyDispatchPublication.stage(candidates);
       if (!publishRemoteModelCatalogSnapshot(catalog, previous)) {
         throw new PreparedModelRuntimePublicationSupersededError(
