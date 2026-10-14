@@ -539,18 +539,9 @@ suite.define(() => {
               }
               await page.bringToFront();
               await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-              // The DOM and Playwright's WebSocket observer settle independently.
               await expect
-                .poll(async () => ({
-                  title: await panel.locator(".session-detail-title").textContent(),
-                  overviewReceived: observedOverviews
-                    .slice(focusOverviewStart)
-                    .some((overview) => overview.session?.sessionId === replacementId),
-                }))
-                .toEqual({
-                  title: expect.stringContaining("Replacement usage session"),
-                  overviewReceived: true,
-                });
+                .poll(() => panel.locator(".session-detail-title").textContent())
+                .toContain("Replacement usage session");
               await expect
                 .poll(() => panel.locator(".session-detail-stats").textContent())
                 .toContain(String(pointCount * 300));
@@ -562,6 +553,13 @@ suite.define(() => {
               expect(await selectedReplacement.getAttribute("aria-label")).toBe(
                 "Replacement usage session",
               );
+              await expect
+                .poll(() =>
+                  observedOverviews
+                    .slice(focusOverviewStart)
+                    .some((overview) => overview.session?.sessionId === replacementId),
+                )
+                .toBe(true);
               expect(connections).toBe(selectedConnections);
               if (pointCount === 2) {
                 await moveOriginalRange();

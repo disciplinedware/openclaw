@@ -8,7 +8,6 @@ import type {
 import { GatewayRequestError, type GatewayBrowserClient } from "../api/gateway.ts";
 import { i18n } from "../i18n/index.ts";
 import { LinkReaderHovercardProvider } from "./link-reader-hovercard.ts";
-import { resolveLinkReaderTarget } from "./link-reader-target.ts";
 
 const ELEMENT_NAME = "test-openclaw-link-reader-hovercard-provider-" + crypto.randomUUID();
 customElements.define(ELEMENT_NAME, class extends LinkReaderHovercardProvider {});
@@ -66,7 +65,7 @@ function connect(
   provider: LinkReaderHovercardProvider,
   request = vi.fn().mockResolvedValue(preview()),
 ) {
-  provider.client = { request, connected: true } as unknown as GatewayBrowserClient;
+  provider.client = { request } as unknown as GatewayBrowserClient;
   return request;
 }
 function card() {
@@ -371,14 +370,16 @@ describe("openclaw-link-reader-hovercard-provider", () => {
     await hover(anchor);
     expect(request).toHaveBeenCalledTimes(2);
     leave(anchor);
-    await vi.advanceTimersByTimeAsync(120);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(card()).toBeNull();
+    Object.assign(provider.client!, { connected: true });
     const signal = new AbortController().signal;
+    // Fill the same cache without creating 100 disposable hovercard portals.
     for (let index = 1; index <= 100; index++) {
-      const target = resolveLinkReaderTarget(
-        "https://github.com/openclaw/openclaw/issues/" + index,
-        [github],
-      )!;
-      await provider.prefetch(target, signal);
+      await provider.prefetch(
+        { href: "https://github.com/openclaw/openclaw/issues/" + index, reader: github },
+        signal,
+      );
     }
     await hover(anchor);
     expect(request).toHaveBeenCalledTimes(103);
