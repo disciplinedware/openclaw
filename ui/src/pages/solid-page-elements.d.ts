@@ -10,7 +10,6 @@ declare module "@solidjs/web" {
       "openclaw-cloud-workers-page": HTMLAttributes<HTMLElement>;
       "openclaw-connection-page": HTMLAttributes<HTMLElement>;
       "openclaw-cron-page": HTMLAttributes<HTMLElement>;
-      "openclaw-custodian-setup-card": HTMLAttributes<HTMLElement>;
       "openclaw-debug-page": HTMLAttributes<HTMLElement>;
       "openclaw-device-page": HTMLAttributes<HTMLElement>;
       "openclaw-device-permissions-page": HTMLAttributes<HTMLElement>;

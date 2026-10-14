@@ -5,11 +5,11 @@ import { renderWizardStepControls } from "../../components/wizard-step-controls.
 import { formatUiExternalText } from "../../lib/format-error.ts";
 import { useApplication } from "../../lib/reactive/context.ts";
 import { t } from "../../lib/reactive/i18n.ts";
-import { LitContent } from "../../lit/solid-bridge.ts";
+import { defineSolidBridge, LitContent, type SolidBridgeElement } from "../../lit/solid-bridge.ts";
 import { useSolidControllerHost } from "../../lit/solid-controller-host.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import type { CustodianAutoSetup } from "./custodian-auto-setup.ts";
-import type { CustodianSessionStore } from "./custodian-session-store.ts";
+import { custodianSessionStore, type CustodianSessionStore } from "./custodian-session-store.ts";
 import "../../styles/custodian-setup-card.css";
 
 function SignInWizard(props: { setup: () => CustodianAutoSetup }) {
@@ -80,7 +80,9 @@ function SignInWizard(props: { setup: () => CustodianAutoSetup }) {
 }
 
 type Props = { store: CustodianSessionStore };
-export function CustodianSetupCard(props: Props) {
+type SetupCardElement = SolidBridgeElement<Props>;
+
+function CustodianSetupCardView(props: Props) {
   const context = useApplication();
   const { host, revision } = useSolidControllerHost(() => props.store);
   new SubscriptionsController(host)
@@ -134,134 +136,144 @@ export function CustodianSetupCard(props: Props) {
     );
   };
   return (
-    <openclaw-custodian-setup-card>
-      <Show when={setup().supported && !setup().dismissed}>
-        <section class="custodian-setup" aria-label={t("custodian.autoSetup.title")}>
-          <div class="custodian-setup__heading">
-            <h2>{title()}</h2>
+    <Show when={setup().supported && !setup().dismissed}>
+      <section class="custodian-setup" aria-label={t("custodian.autoSetup.title")}>
+        <div class="custodian-setup__heading">
+          <h2>{title()}</h2>
+          <button
+            class="custodian__nudge-dismiss"
+            type="button"
+            aria-label={t("common.dismiss")}
+            onClick={() => setup().dismiss()}
+          >
+            <Icon name="x" />
+          </button>
+        </div>
+        <Show when={setup().pending}>
+          <p class="custodian-setup__progress" role="status">
+            <span class="btn__spinner" aria-hidden="true" />
+            {t("custodian.autoSetup.verifying")}
+          </p>
+        </Show>
+        <Show when={!setup().pending && result()?.selected?.shared}>
+          <p>{t("custodian.autoSetup.sharedCodexLogin")}</p>
+          <Show when={result()?.separateSignIn}>
             <button
-              class="custodian__nudge-dismiss"
+              class="btn"
               type="button"
-              aria-label={t("common.dismiss")}
-              onClick={() => setup().dismiss()}
+              disabled={busy()}
+              onClick={() => void setup().signIn()}
             >
-              <Icon name="x" />
+              {t("custodian.autoSetup.separateLogin")}
             </button>
-          </div>
-          <Show when={setup().pending}>
-            <p class="custodian-setup__progress" role="status">
-              <span class="btn__spinner" aria-hidden="true" />
-              {t("custodian.autoSetup.verifying")}
-            </p>
           </Show>
-          <Show when={!setup().pending && result()?.selected?.shared}>
-            <p>{t("custodian.autoSetup.sharedCodexLogin")}</p>
-            <Show when={result()?.separateSignIn}>
+        </Show>
+        <Show when={!setup().pending && result()?.status === "needs-sign-in"}>
+          <p>{t("custodian.autoSetup.signInBody")}</p>
+          <Show when={!busy()}>
+            <button class="btn primary" type="button" onClick={() => void setup().signIn()}>
+              {t("custodian.autoSetup.signIn")}
+            </button>
+          </Show>
+        </Show>
+        <Show when={!setup().pending && result()?.status === "unavailable"}>
+          <p>{t("custodian.autoSetup.unavailableBody")}</p>
+          <Show when={result()?.attempts.length}>
+            <ul class="custodian-setup__attempts">
+              <For each={result()?.attempts}>
+                {(attempt) => (
+                  <li>
+                    <strong>{attempt.label}:</strong> {attempt.error}
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+          <Show
+            when={native()?.openAiSetup}
+            fallback={
+              <p>
+                {t("custodian.autoSetup.commandHint")} <code>openclaw onboard</code>
+              </p>
+            }
+          >
+            <button class="btn" type="button" onClick={() => native()?.openAiSetup?.()}>
+              {t("custodian.autoSetup.nativeSetup")}
+            </button>
+          </Show>
+        </Show>
+        <Show when={result()?.alternatives.length}>
+          <div class="custodian-setup__alternatives">
+            <h3>{t("custodian.autoSetup.alternatives")}</h3>
+            <div class="custodian-setup__actions">
+              <For each={result()?.alternatives}>
+                {(candidate) => (
+                  <button
+                    class="btn"
+                    type="button"
+                    title={candidate.detail}
+                    disabled={busy()}
+                    onClick={() => void setup().activate(candidate)}
+                  >
+                    {candidate.label}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+        <SignInWizard setup={setup} />
+        <Show when={setup().error}>
+          {(error) => (
+            <div class="custodian-setup__error" role="alert">
+              <p>{error()}</p>
               <button
                 class="btn"
                 type="button"
                 disabled={busy()}
-                onClick={() => void setup().signIn()}
+                onClick={() => void setup().retry()}
               >
-                {t("custodian.autoSetup.separateLogin")}
+                {t("common.retry")}
               </button>
-            </Show>
-          </Show>
-          <Show when={!setup().pending && result()?.status === "needs-sign-in"}>
-            <p>{t("custodian.autoSetup.signInBody")}</p>
-            <Show when={!busy()}>
-              <button class="btn primary" type="button" onClick={() => void setup().signIn()}>
-                {t("custodian.autoSetup.signIn")}
-              </button>
-            </Show>
-          </Show>
-          <Show when={!setup().pending && result()?.status === "unavailable"}>
-            <p>{t("custodian.autoSetup.unavailableBody")}</p>
-            <Show when={result()?.attempts.length}>
-              <ul class="custodian-setup__attempts">
-                <For each={result()?.attempts}>
-                  {(attempt) => (
-                    <li>
-                      <strong>{attempt.label}:</strong> {attempt.error}
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-            <Show
-              when={native()?.openAiSetup}
-              fallback={
-                <p>
-                  {t("custodian.autoSetup.commandHint")} <code>openclaw onboard</code>
-                </p>
-              }
-            >
-              <button class="btn" type="button" onClick={() => native()?.openAiSetup?.()}>
-                {t("custodian.autoSetup.nativeSetup")}
-              </button>
-            </Show>
-          </Show>
-          <Show when={result()?.alternatives.length}>
-            <div class="custodian-setup__alternatives">
-              <h3>{t("custodian.autoSetup.alternatives")}</h3>
-              <div class="custodian-setup__actions">
-                <For each={result()?.alternatives}>
-                  {(candidate) => (
-                    <button
-                      class="btn"
-                      type="button"
-                      title={candidate.detail}
-                      disabled={busy()}
-                      onClick={() => void setup().activate(candidate)}
-                    >
-                      {candidate.label}
-                    </button>
-                  )}
-                </For>
-              </div>
             </div>
-          </Show>
-          <SignInWizard setup={setup} />
-          <Show when={setup().error}>
-            {(error) => (
-              <div class="custodian-setup__error" role="alert">
-                <p>{error()}</p>
-                <button
-                  class="btn"
-                  type="button"
-                  disabled={busy()}
-                  onClick={() => void setup().retry()}
-                >
-                  {t("common.retry")}
-                </button>
-              </div>
-            )}
-          </Show>
-          <Show when={native()?.openGateways || native()?.reviewPermissions}>
-            <div class="custodian-setup__actions custodian-setup__native-actions">
-              <Show when={native()?.openGateways}>
-                <button
-                  class="btn btn--ghost"
-                  type="button"
-                  onClick={() => native()?.openGateways?.()}
-                >
-                  {t("custodian.autoSetup.differentGateway")}
-                </button>
-              </Show>
-              <Show when={native()?.reviewPermissions}>
-                <button
-                  class="btn btn--ghost"
-                  type="button"
-                  onClick={() => native()?.reviewPermissions?.()}
-                >
-                  {t("custodian.autoSetup.reviewPermissions")}
-                </button>
-              </Show>
-            </div>
-          </Show>
-          <p class="custodian-setup__safety">{t("custodian.autoSetup.safety")}</p>
-        </section>
-      </Show>
-    </openclaw-custodian-setup-card>
+          )}
+        </Show>
+        <Show when={native()?.openGateways || native()?.reviewPermissions}>
+          <div class="custodian-setup__actions custodian-setup__native-actions">
+            <Show when={native()?.openGateways}>
+              <button
+                class="btn btn--ghost"
+                type="button"
+                onClick={() => native()?.openGateways?.()}
+              >
+                {t("custodian.autoSetup.differentGateway")}
+              </button>
+            </Show>
+            <Show when={native()?.reviewPermissions}>
+              <button
+                class="btn btn--ghost"
+                type="button"
+                onClick={() => native()?.reviewPermissions?.()}
+              >
+                {t("custodian.autoSetup.reviewPermissions")}
+              </button>
+            </Show>
+          </div>
+        </Show>
+        <p class="custodian-setup__safety">{t("custodian.autoSetup.safety")}</p>
+      </section>
+    </Show>
   );
+}
+
+export const CustodianSetupCard = defineSolidBridge<Props>(
+  "openclaw-custodian-setup-card",
+  CustodianSetupCardView,
+  { properties: { store: { default: custodianSessionStore, attribute: false } } },
+);
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "openclaw-custodian-setup-card": SetupCardElement;
+  }
 }
