@@ -231,20 +231,20 @@ it("refreshes agent owner facets when the sidebar roster changes", async () => {
           },
         });
       // Read the cold ACP row before a scoped read can populate its owner projection.
-      expect((await list(false)).owners.map(({ id }) => id)).toEqual(["owner"]);
-      expect((await list()).owners.map(({ id }) => id)).toEqual(["owner"]);
+      expect((await list(false)).owners?.map(({ id }) => id)).toEqual(["owner"]);
+      expect((await list()).owners?.map(({ id }) => id)).toEqual(["owner"]);
       await patchSessionEntryCore({ agentId: "main", sessionKey: key }, () => ({
         label: "Metadata changed",
       }));
-      expect((await list()).owners.map(({ id }) => id)).toEqual(["owner"]);
+      expect((await list()).owners?.map(({ id }) => id)).toEqual(["owner"]);
       cfg = { ...cfg, agents: { entries: { main: {} } } };
       setRuntimeConfigSnapshot(cfg);
       expect((await list()).owners).toEqual([]);
       expect((await list(false)).owners).toEqual([]);
       cfg = { ...cfg, agents: { entries: { main: {}, owner: {} } } };
       setRuntimeConfigSnapshot(cfg);
-      expect((await list()).owners.map(({ id }) => id)).toEqual(["owner"]);
-      expect((await list(false)).owners.map(({ id }) => id)).toEqual(["owner"]);
+      expect((await list()).owners?.map(({ id }) => id)).toEqual(["owner"]);
+      expect((await list(false)).owners?.map(({ id }) => id)).toEqual(["owner"]);
     } finally {
       projection.dispose();
     }
