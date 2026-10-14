@@ -38,3 +38,18 @@ export function PersonAvatarLink(props: { children: JSX.Element; link: ActivityL
     </>
   );
 }
+
+/** A standalone avatar supplies the link's accessible name and remains a tab stop. */
+export function StandalonePersonLink(props: { children: JSX.Element; link: ActivityLink }) {
+  return (
+    <Show when={props.link} fallback={props.children}>
+      <a
+        class="person-activity-avatar-link"
+        href={props.link?.href}
+        onClick={(event) => props.link?.open(event)}
+      >
+        {props.children}
+      </a>
+    </Show>
+  );
+}

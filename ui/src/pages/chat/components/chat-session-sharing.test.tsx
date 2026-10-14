@@ -281,6 +281,11 @@ describe("chat session sharing menu", () => {
       ".chat-pane__sharing-owner a.person-activity-link",
     );
     expect(ownerLink?.getAttribute("href")).toBe("/activity/owner");
+    const ownerAvatarLink = root.querySelector<HTMLAnchorElement>(
+      ".chat-pane__sharing-owner a.person-activity-avatar-link",
+    );
+    expect(ownerAvatarLink?.tabIndex).toBe(-1);
+    expect(ownerAvatarLink?.getAttribute("aria-hidden")).toBe("true");
     expect(root.querySelector(".session-menu__separator")).toBeNull();
 
     ownerLink?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -347,6 +352,7 @@ describe("chat session sharing menu", () => {
   });
 
   it("keeps the linked owner beside the draft marker for a non-manager", () => {
+    const navigate = vi.fn();
     const root = mount(
       renderSharing({
         session: {
@@ -366,7 +372,7 @@ describe("chat session sharing menu", () => {
         },
         state: undefined,
         ownerViewing: false,
-        personActivity: { basePath: "", navigate: vi.fn() },
+        personActivity: { basePath: "", navigate },
         showOwner: true,
         onOpen: vi.fn(),
         onVisibilityChange: vi.fn(),
@@ -377,11 +383,28 @@ describe("chat session sharing menu", () => {
     const indicator = root.querySelector(".chat-pane__draft-indicator");
     expect(indicator?.querySelector("svg")).not.toBeNull();
     expect(indicator?.textContent?.trim()).toBe("");
-    expect(
-      root
-        .querySelector("a.person-activity-avatar-link:has(openclaw-session-owner-chip)")
-        ?.getAttribute("href"),
-    ).toBe("/activity/owner");
+    const ownerLink = root.querySelector<HTMLAnchorElement>(
+      "a.person-activity-avatar-link:has(openclaw-session-owner-chip)",
+    );
+    expect(ownerLink?.getAttribute("href")).toBe("/activity/owner");
+    expect(ownerLink?.tabIndex).toBe(0);
+    expect(ownerLink?.hasAttribute("aria-hidden")).toBe(false);
+    ownerLink?.focus();
+    expect(document.activeElement).toBe(ownerLink);
+
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    ownerLink?.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(navigate).toHaveBeenCalledExactlyOnceWith("owner", "Owner");
+
+    const modifiedClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    ownerLink?.dispatchEvent(modifiedClick);
+    expect(modifiedClick.defaultPrevented).toBe(false);
+    expect(navigate).toHaveBeenCalledOnce();
   });
 
   it("keeps read-only owner controls visible but refuses disabled synthetic actions", () => {
