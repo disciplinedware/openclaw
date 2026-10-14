@@ -102,10 +102,15 @@ describeControlUiE2e("Control UI plugin runtime actions", () => {
         row.getByRole("button", { name: "Disable Calendar Plus", exact: true }),
         row.getByRole("button", { name: "Uninstall Calendar Plus", exact: true }),
       ]) {
+        await button.waitFor({ state: "visible" });
+        // A resize can replace the control after a separate visibility check.
         await expect
           .poll(async () => {
             const box = await button.boundingBox();
-            return box !== null && box.x >= 0 && box.x + box.width <= mobileViewport.width;
+            expect(box).not.toBeNull();
+            expect(box!.x).toBeGreaterThanOrEqual(0);
+            expect(box!.x + box!.width).toBeLessThanOrEqual(mobileViewport.width);
+            return true;
           })
           .toBe(true);
       }
