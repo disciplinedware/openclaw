@@ -1,9 +1,10 @@
 /* @vitest-environment jsdom */
 
 import { expectDefined } from "@openclaw/normalization-core";
-import { html, render } from "lit";
+import { html } from "lit";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { normalizeAttachmentContentBlock } from "../../../lib/chat/message-normalizer-attachments.ts";
+import { createLitTestRenderer } from "../../../test-helpers/lit-render.ts";
 import { renderAssistantAttachments as renderAttachmentCards } from "./chat-message-attachments.ts";
 import { renderMessageImages } from "./chat-message-images.ts";
 import {
@@ -53,6 +54,7 @@ async function flushAttachmentResolution() {
 }
 
 const subscribers = new Set<() => void>();
+const { render, cleanup } = createLitTestRenderer();
 
 function stubAttachmentIntersection(): () => Promise<void> {
   const callbacks: IntersectionObserverCallback[] = [];
@@ -75,7 +77,8 @@ function stubAttachmentIntersection(): () => Promise<void> {
   };
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await cleanup();
   for (const subscriber of subscribers) {
     releaseChatMediaResourceSubscriber(subscriber);
   }
