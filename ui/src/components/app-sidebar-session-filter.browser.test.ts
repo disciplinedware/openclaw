@@ -1,4 +1,4 @@
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, onTestFailed, onTestFinished, vi } from "vitest";
 import { subscribeNativeOverlayOcclusion } from "../lib/native-overlay-occlusion.ts";
 import { setupSidebarTest } from "../test-helpers/app-sidebar-setup.ts";
 import {
@@ -83,9 +83,57 @@ describe.runIf("__vitest_browser__" in globalThis)("sidebar session filter popov
       const { sidebar, page } = await mountFilters(width);
       sidebar.dir = direction;
       const occlusion: boolean[] = [];
+      const started = performance.now();
+      const surfaceSelector = ".picker-select__menu,.oc-overlay,.tooltip-popup";
+      const snapshot = (event: string, occluded?: boolean) => ({
+        event,
+        elapsed: Math.round(performance.now() - started),
+        occluded,
+        surfaces: [...document.querySelectorAll<HTMLElement>(surfaceSelector)]
+          .slice(0, 4)
+          .map((surface) => {
+            const bounds = surface.getBoundingClientRect();
+            return {
+              id: surface.id,
+              phase: surface.dataset.phase,
+              open: surface.matches(":popover-open"),
+              bounds: [bounds.left, bounds.top, bounds.right, bounds.bottom],
+              animations: surface
+                .getAnimations()
+                .slice(0, 2)
+                .map((animation) => ({
+                  name: animation instanceof CSSAnimation ? animation.animationName : null,
+                  progress: animation.effect?.getComputedTiming().progress,
+                })),
+            };
+          }),
+      });
+      const diagnostics: ReturnType<typeof snapshot>[] = [];
+      const record = (event: string, occluded?: boolean) => {
+        if (diagnostics.length < 32) diagnostics.push(snapshot(event, occluded));
+      };
+      const lifecycle = (event: Event) => {
+        if (event.target instanceof Element && event.target.matches(surfaceSelector)) {
+          record(event.type);
+        }
+      };
+      const events = ["overlay-show", "overlay-hide", "overlay-after-show", "overlay-after-hide"];
+      for (const event of events) document.addEventListener(event, lifecycle, true);
+      onTestFinished(() => {
+        for (const event of events) document.removeEventListener(event, lifecycle, true);
+      });
+      onTestFailed(() => {
+        console.info(
+          "sidebar overlay diagnostics",
+          JSON.stringify({ width, direction, diagnostics }),
+        );
+      });
       onTestFinished(
         subscribeNativeOverlayOcclusion(
-          (value) => occlusion.push(value),
+          (value) => {
+            occlusion.push(value);
+            record("occlusion", value);
+          },
           () => new DOMRect(0, 0, innerWidth, innerHeight),
         ),
       );
