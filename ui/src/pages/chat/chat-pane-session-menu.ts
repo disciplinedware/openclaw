@@ -117,10 +117,6 @@ export abstract class ChatPaneSessionMenu extends ChatPaneContext {
     const isChild =
       !isSubagentSessionKey(row.key) &&
       Boolean(resolveSidebarSessionParentKey(row, new Set([mainSessionKey])));
-    const hasChildren = hasSessionArchiveDescendants(
-      row,
-      this.state?.sessionsResult?.sessions ?? [],
-    );
     const archiving = this.context.sessions.archiveVisibility(row.key) === "pending";
     const pinned = this.context.navigation.snapshot.sidebarEntries.includes(
       serializeSidebarEntry({ type: "session", key: row.key }),
@@ -133,7 +129,6 @@ export abstract class ChatPaneSessionMenu extends ChatPaneContext {
         row.agentId,
         row.sessionId,
         isChild,
-        hasChildren,
         pinned,
         pinnable,
         row.snoozedUntil,
@@ -153,7 +148,6 @@ export abstract class ChatPaneSessionMenu extends ChatPaneContext {
         target: { key: row.key, agentId: row.agentId },
         sessionId: row.sessionId ?? null,
         isChild,
-        hasChildren,
         pinned,
         pinnable,
         snoozedUntil: row.snoozedUntil ?? null,
@@ -285,6 +279,10 @@ export abstract class ChatPaneSessionMenu extends ChatPaneContext {
       hasActiveRun: candidate.hasActiveRun ?? candidate.status === "running",
       gatewayHasActiveRun: candidate.hasActiveRun,
       hasActiveSubagentRun: candidate.hasActiveSubagentRun,
+      hasArchiveDescendants: hasSessionArchiveDescendants(
+        candidate,
+        this.state?.sessionsResult?.sessions ?? [],
+      ),
     });
     const session = toActionSession(row);
     // Refresh metadata only on the selected instance; replacements must keep
@@ -369,9 +367,6 @@ export abstract class ChatPaneSessionMenu extends ChatPaneContext {
           break;
         case "move-to-top-level":
           await operations.promoteSession(host, session, scope);
-          break;
-        case "archive-tree":
-          await operations.archiveSessionTreeWithUndo(host, session, scope);
           break;
         case "move-to-group":
           await assignCategory(action.category);
