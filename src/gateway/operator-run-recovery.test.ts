@@ -307,57 +307,84 @@ describe("restart recovery authenticated operator source", () => {
       });
     },
   );
-  it("requires the original access-plugin grant before restoration and after admission", async () => {
-    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
-      const original = { pluginId: "recovery-access", grantId: "original-accepted-grant" };
-      let permitted = true;
-      const controller = new AbortController();
-      const grant = {
-        grantId: original.grantId,
-        signal: controller.signal,
-        assertCurrent: () => controller.signal.throwIfAborted(),
-      };
-      const resume = vi.fn<NonNullable<PluginGatewayAccessPolicy["resume"]>>(() =>
-        permitted ? grant : undefined,
-      );
-      const registry = createEmptyPluginRegistry();
-      registry.plugins.push(createPluginRecord({ id: original.pluginId }));
-      registry.gatewayAccessPolicies.push({
-        pluginId: original.pluginId,
-        source: "fixture",
-        policy: { authorize: () => grant, resume },
-      });
-      const previous = captureActivePluginRegistrySnapshot();
-      stageActivePluginRegistry(registry, null, "default");
-      try {
-        const profile = ensureProfileForEmail("access@example.test");
-        const fixture = await createOperatorRecoveryFixture({
-          stateDir: state.stateDir,
-          context: createContext(),
-          profileId: profile.id,
-          config: {},
-          gatewayAccessGrant: original,
+  it.each(["signal", "assertion", "new policy"] as const)(
+    "resumes the original access grant once and fences retained recovery through %s",
+    async (revocation) => {
+      await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+        const original = { pluginId: "recovery-access", grantId: "original-accepted-grant" };
+        let permitted = true;
+        let additionalApplicable = false;
+        const controller = new AbortController();
+        const grant = {
+          grantId: original.grantId,
+          signal: controller.signal,
+          assertCurrent: () => {
+            controller.signal.throwIfAborted();
+            if (!permitted) {
+              throw new Error("Original grant revoked");
+            }
+          },
+        };
+        const resume = vi.fn<NonNullable<PluginGatewayAccessPolicy["resume"]>>(() =>
+          permitted ? grant : undefined,
+        );
+        const registry = createEmptyPluginRegistry();
+        registry.plugins.push(createPluginRecord({ id: original.pluginId }));
+        registry.gatewayAccessPolicies.push({
+          pluginId: original.pluginId,
+          source: "fixture",
+          policy: { authorize: () => grant, resume },
         });
-        permitted = false;
-        await expect(fixture.restore()).rejects.toThrow("Gateway access is not active");
-        permitted = true;
-        const restored = expectDefined(await fixture.restore(), "restored original grant");
+        registry.plugins.push(createPluginRecord({ id: "additional-access" }));
+        registry.gatewayAccessPolicies.push({
+          pluginId: "additional-access",
+          source: "fixture",
+          policy: { authorize: () => (additionalApplicable ? grant : undefined) },
+        });
+        const previous = captureActivePluginRegistrySnapshot();
+        stageActivePluginRegistry(registry, null, "default");
         try {
-          expect(restored.authority.gatewayAccessGrant).toEqual(original);
-          expect(resume).toHaveBeenCalledWith(
-            expect.objectContaining({ grantId: original.grantId }),
-          );
-          controller.abort(new Error("Original grant revoked"));
-          expect(restored.authority.signal?.aborted).toBe(true);
-          expect(restored.authority.assertCurrent).toThrow();
+          const profile = ensureProfileForEmail("access@example.test");
+          const fixture = await createOperatorRecoveryFixture({
+            stateDir: state.stateDir,
+            context: createContext(),
+            profileId: profile.id,
+            config: {},
+            gatewayAccessGrant: original,
+          });
+          permitted = false;
+          await expect(fixture.restore()).rejects.toThrow("Gateway access is not active");
+          permitted = true;
+          resume.mockClear();
+          const restored = expectDefined(await fixture.restore(), "restored original grant");
+          try {
+            expect(restored.authority.gatewayAccessGrant).toEqual(original);
+            expect(resume).toHaveBeenCalledWith(
+              expect.objectContaining({ grantId: original.grantId }),
+            );
+            restored.authority.assertCurrent();
+            restored.authority.readCurrentRoleAssignment?.();
+            restored.authority.readCurrentGithubLogin?.();
+            expect(resume).toHaveBeenCalledTimes(1);
+            if (revocation === "signal") {
+              controller.abort(new Error("Original grant revoked"));
+              expect(restored.authority.signal?.aborted).toBe(true);
+            } else if (revocation === "assertion") {
+              permitted = false;
+            } else {
+              additionalApplicable = true;
+            }
+            expect(restored.authority.assertCurrent).toThrow();
+            expect(restored.authority.signal?.aborted).toBe(true);
+          } finally {
+            restored.release();
+          }
         } finally {
-          restored.release();
+          restoreActivePluginRegistrySnapshot(previous);
         }
-      } finally {
-        restoreActivePluginRegistrySnapshot(previous);
-      }
-    });
-  });
+      });
+    },
+  );
   it("re-admits durable input after the original authority closes without exporting credentials", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
       setRuntimeConfigSnapshot({});

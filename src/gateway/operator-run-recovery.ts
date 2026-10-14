@@ -228,17 +228,19 @@ export async function restoreGatewayOperatorRecovery(params: {
     assertPolicy = () => {
       try {
         const { profile, cfg } = assertFacts();
-        const access = resumeGatewayOperatorAccessGrant(profile, cfg, snapshot.grant);
+        const access = resumeGatewayOperatorAccessGrant(
+          profile,
+          cfg,
+          snapshot.grant,
+          accessAuthority,
+        );
         if (access && !accessAuthority) {
           accessAuthority = access;
           const onAbort = () => revoke(access.signal.reason);
           access.signal.addEventListener("abort", onAbort, { once: true });
           subscriptions.push(() => access.signal.removeEventListener("abort", onAbort));
         }
-        // Retain the first exact resumed owner before recovery yields. Later
-        // policy checks cannot replace a revoked source with a fresh authority.
-        accessAuthority?.signal.throwIfAborted();
-        accessAuthority?.assertCurrent();
+        // Other policy callbacks may synchronously revoke the retained grant.
         accessAuthority?.signal.throwIfAborted();
         // A policy callback can change committed identity/config synchronously.
         return assertFacts().cfg;
