@@ -2672,7 +2672,6 @@
   "ui/src/pages/chat/workspace-conflict.ts",
   "ui/src/pages/plugins/plugin-icon-controller.ts",
   "ui/src/pages/plugins/presentation.ts",
-  "ui/src/pages/skills/library-detail.ts",
   "ui/src/pages/skills/library-detail.tsx",
   "ui/src/pages/skills/library-files.ts",
   "ui/src/plugins/control-ui-actions.ts",
