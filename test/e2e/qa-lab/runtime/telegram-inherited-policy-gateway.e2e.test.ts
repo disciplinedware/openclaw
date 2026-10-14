@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { withServer, withTempDir } from "openclaw/plugin-sdk/test-env";
 import { expect, test } from "vitest";
 import {
@@ -140,21 +139,6 @@ test.each(["allowlist", "open"] as const)(
           try {
             gateway = await gatewayOwner.start({
               repoRoot,
-              command: {
-                executablePath: process.execPath,
-                argsPrefix: [
-                  "--import",
-                  pathToFileURL(path.join(repoRoot, "scripts/tsx.mjs")).href,
-                  path.join(repoRoot, "scripts/run-with-env.mts"),
-                  `OPENCLAW_DEV_SOURCE_ROOT=${repoRoot}`,
-                  "--",
-                  process.execPath,
-                  path.join(repoRoot, "openclaw.mjs"),
-                ],
-                argsSuffix: ["--verbose"],
-                cwd: repoRoot,
-                usePackagedPlugins: true,
-              },
               providerMode: "mock-openai",
               providerBaseUrl: `${mock.baseUrl}/v1`,
               transportBaseUrl: apiRoot,
