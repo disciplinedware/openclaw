@@ -116,7 +116,7 @@ export function normalizeNotificationSubscription(
   const boardId = normalizeBoardId(input.boardId) ?? "default";
   const cardId = normalizeBoundedString(input.cardId, undefined, 120, "card id");
   const sessionKey = normalizeBoundedString(input.sessionKey, undefined, 240, "session key");
-  const runId = normalizeBoundedString(input.runId, undefined, 160, "run id");
+  const runId = normalizeOptionalString(input.runId);
   const target = normalizeBoundedString(input.target, undefined, 240, "notification target");
   if (!cardId && !sessionKey && !runId && !target) {
     throw new Error("notification subscription needs cardId, sessionKey, runId, or target.");
@@ -340,7 +340,7 @@ export function normalizeLaunchState(value: unknown): WorkboardLaunchState | und
     return undefined;
   }
   const requestedSessionKey = normalizeBoundedOptionalString(value.requestedSessionKey, 240);
-  const provisionalRunId = normalizeBoundedOptionalString(value.provisionalRunId, 160);
+  const provisionalRunId = normalizeOptionalString(value.provisionalRunId);
   const preparedAt = normalizeLaunchTimestamp(value.preparedAt);
   if (!requestedSessionKey || !provisionalRunId || preparedAt === undefined) {
     return undefined;
@@ -352,7 +352,7 @@ export function normalizeLaunchState(value: unknown): WorkboardLaunchState | und
   if (value.phase === "accepted") {
     const acceptedAt = normalizeLaunchTimestamp(value.acceptedAt);
     const acceptedSessionKey = normalizeBoundedOptionalString(value.acceptedSessionKey, 240);
-    const acceptedRunId = normalizeBoundedOptionalString(value.acceptedRunId, 160);
+    const acceptedRunId = normalizeOptionalString(value.acceptedRunId);
     return acceptedAt === undefined || !acceptedSessionKey
       ? undefined
       : {
@@ -579,7 +579,7 @@ export function workerLogEntry(
       ? record.level
       : "info";
   const sessionKey = normalizeBoundedString(record.sessionKey, undefined, 240, "session key");
-  const runId = normalizeBoundedString(record.runId, undefined, 160, "run id");
+  const runId = normalizeOptionalString(record.runId);
   return {
     id: id ?? randomUUID(),
     level,

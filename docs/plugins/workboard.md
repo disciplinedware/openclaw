@@ -440,7 +440,8 @@ its command or note is identical.
 
 Completion validates its proof, artifacts, and notification before saving the card.
 A validation failure leaves the card unchanged. Completion notifications preserve
-the full execution run ID, including IDs longer than 120 characters.
+the full execution run ID, including IDs longer than 120 characters. Launch metadata,
+worker logs, and run-scoped notification subscriptions preserve that same identity.
 
 Claimed cards reject agent-tool mutations from other agents unless the caller
 holds the claim token returned by `workboard_claim`. Every card returned by an

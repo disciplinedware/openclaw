@@ -755,6 +755,22 @@ describe("WorkboardStore", () => {
     });
 
     expect(updated.metadata?.automation?.launch).toEqual(prepared.launch);
+
+    const runId = "r".repeat(164);
+    const sessionKey = "agent:worker:subagent:workboard-default-trusted";
+    await store.acceptExecutionLaunch(card.id, {
+      expectedLaunch: prepared.launch,
+      expectedSessionKey: prepared.launch.requestedSessionKey,
+      expectedRunId: prepared.launch.provisionalRunId,
+      sessionKey,
+      runId,
+      execution: codexExecution("accepted-exec", 100, { sessionKey, runId }),
+      acceptedAt: prepared.launch.preparedAt + 1,
+    });
+    expect((await store.get(card.id))?.metadata?.automation?.launch).toMatchObject({
+      phase: "accepted",
+      acceptedRunId: runId,
+    });
   });
 
   it("does not let a delayed launch failure overwrite a newer retry", async () => {
@@ -1668,6 +1684,8 @@ describe("WorkboardStore", () => {
       execution: codexExecution("exec-long-run", 1_000, { runId }),
     });
 
+    const logged = await store.addWorkerLog(card.id, { message: "Verification ready.", runId });
+    const subscription = await store.subscribeNotifications({ runId });
     await store.complete(card.id, {
       summary: "Verified.",
       proof: { status: "passed", command: "test-command" },
@@ -1677,14 +1695,18 @@ describe("WorkboardStore", () => {
       status: "done",
       execution: { status: "done", runId },
       events: [
-        ...(card.events ?? []),
+        ...(logged.events ?? []),
         expect.objectContaining({ kind: "moved", toStatus: "done" }),
       ],
       metadata: {
         attempts: [expect.objectContaining({ status: "succeeded", runId })],
+        workerLogs: [expect.objectContaining({ message: "Verification ready.", runId })],
         proof: [expect.objectContaining({ status: "passed", command: "test-command" })],
         notifications: [expect.objectContaining({ kind: "completed", runId })],
       },
+    });
+    expect(await store.notificationEvents({ subscriptionId: subscription.id })).toMatchObject({
+      events: [expect.objectContaining({ kind: "completed", runId })],
     });
   });
 
