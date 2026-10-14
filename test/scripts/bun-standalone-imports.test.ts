@@ -40,7 +40,9 @@ describe("standalone import relocation", () => {
       __openclawStandaloneRootUrl: relocatedRoot,
       __openclawStandaloneImport: async (parent: string, target: string) => {
         calls.push({ parent, target });
-        if (target.startsWith("/removed-build/")) throw new Error("Build directory is gone");
+        if (target.startsWith("/removed-build/")) {
+          throw new Error("Build directory is gone");
+        }
         return { loaded: target };
       },
     });

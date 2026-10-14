@@ -130,7 +130,12 @@ export function createStandaloneMetadataAdapter({ runtimeRoot, embeddedPaths, pa
         assets.push(relative);
       }
     }
-    sdk[entry] = { complete, assets: [...new Set(assets)].toSorted() };
+    sdk[entry] = {
+      complete,
+      assets: [...new Set(assets)].toSorted((left, right) =>
+        left < right ? -1 : left > right ? 1 : 0,
+      ),
+    };
   }
   if (!Object.keys(doctor).length || !Object.keys(sdk).length) {
     throw new Error("Missing standalone Doctor or SDK metadata facts");

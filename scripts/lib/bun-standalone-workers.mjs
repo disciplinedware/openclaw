@@ -161,8 +161,12 @@ function workerCalls(contents, ast) {
     return false;
   };
   const kind = (node, scope) => {
-    if (node?.type === "AwaitExpression") return kind(node.argument, scope);
-    if (node?.type === "Identifier") return lookup(node.name, scope);
+    if (node?.type === "AwaitExpression") {
+      return kind(node.argument, scope);
+    }
+    if (node?.type === "Identifier") {
+      return lookup(node.name, scope);
+    }
     if (
       (node?.type === "ImportExpression" &&
         ["worker_threads", "node:worker_threads"].includes(node.source.value)) ||
@@ -187,7 +191,9 @@ function workerCalls(contents, ast) {
     return false;
   };
   const bind = (pattern, scope, value = false) => {
-    if (!pattern) return;
+    if (!pattern) {
+      return;
+    }
     if (pattern.type === "Identifier") {
       scope.bindings.set(pattern.name, value);
     } else if (pattern.type === "ObjectPattern") {
@@ -209,7 +215,9 @@ function workerCalls(contents, ast) {
     (name === "createRetainedNativeWorker" &&
       contents.includes("//#region src/infra/worker-native-lifecycle.ts"));
   const visit = (node, outer) => {
-    if (!node || typeof node !== "object" || !node.type) return;
+    if (!node || typeof node !== "object" || !node.type) {
+      return;
+    }
     const isFunction = [
       "FunctionDeclaration",
       "FunctionExpression",
@@ -241,8 +249,11 @@ function workerCalls(contents, ast) {
       if (isFunction) {
         bind(node.id, scope, knownFactory(node.id?.name) ? "worker" : false);
         node.params.forEach((parameter) => bind(parameter, scope));
-      } else if (node.type === "CatchClause") bind(node.param, scope);
-      else if (node.type.startsWith("Class")) bind(node.id, scope);
+      } else if (node.type === "CatchClause") {
+        bind(node.param, scope);
+      } else if (node.type.startsWith("Class")) {
+        bind(node.id, scope);
+      }
     }
     scopes.set(node, scope);
     if (node.type === "ImportDeclaration") {
@@ -269,7 +280,9 @@ function workerCalls(contents, ast) {
     }
     if (node.type === "VariableDeclaration") {
       let owner = scope;
-      while (node.kind === "var" && !owner.functionScope) owner = owner.parent;
+      while (node.kind === "var" && !owner.functionScope) {
+        owner = owner.parent;
+      }
       for (const declaration of node.declarations) {
         // Direct namespace destructuring is enough for native require/import forms.
         const value =
@@ -281,8 +294,11 @@ function workerCalls(contents, ast) {
       }
     }
     for (const value of Object.values(node)) {
-      if (Array.isArray(value)) value.forEach((child) => visit(child, scope));
-      else visit(value, scope);
+      if (Array.isArray(value)) {
+        value.forEach((child) => visit(child, scope));
+      } else {
+        visit(value, scope);
+      }
     }
   };
   visit(ast, root);

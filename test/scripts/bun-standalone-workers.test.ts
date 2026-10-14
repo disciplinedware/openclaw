@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,7 +11,9 @@ import {
 
 const roots: string[] = [];
 afterEach(() => {
-  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function fixture(files: Record<string, string>) {
@@ -104,7 +107,9 @@ describe("standalone inline worker graph", () => {
     expect(transformed).toContain("eval: false");
     expect(transformed).toContain("workerData: { value: 3 }");
     expect(transformed).toContain("file:///$bunfs/root/standalone-workers/inline/");
-    expect(fs.readFileSync(prepared.entrypoints[0].replace(/\.mjs$/, ".body.cjs"), "utf8")).toBe(
+    const entrypoint = prepared.entrypoints[0];
+    assert.ok(entrypoint, "expected embedded worker entrypoint");
+    expect(fs.readFileSync(entrypoint.replace(/\.mjs$/, ".body.cjs"), "utf8")).toBe(
       "require('node:worker_threads').parentPort.postMessage(7)\n",
     );
   });

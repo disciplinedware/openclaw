@@ -1,7 +1,7 @@
 import path from "node:path";
 
 export function rewriteStandaloneImports({
-  contents,
+  contents: originalContents,
   filename,
   runtimeRoot,
   embeddedPaths,
@@ -9,6 +9,7 @@ export function rewriteStandaloneImports({
   workerThreadsShim,
   parse,
 }) {
+  let contents = originalContents;
   const relative = path.relative(runtimeRoot, filename).split(path.sep).join("/");
   const generatedTargets = new Set([...Object.values(moduleAliases), workerThreadsShim]);
   // Rewrite syntax nodes only: loaders also contain quoted "import.meta.url" source.
@@ -69,7 +70,9 @@ export function rewriteStandaloneImports({
       if (generatedTargets.has(node.source.value)) {
         const entry = path.relative(runtimeRoot, node.source.value).split(path.sep).join("/");
         const embedded = embeddedPaths[entry];
-        if (!embedded) throw new Error(`Missing embedded standalone import: ${entry}`);
+        if (!embedded) {
+          throw new Error(`Missing embedded standalone import: ${entry}`);
+        }
         edits.push([node.source.start, node.source.end, JSON.stringify(embedded)]);
       }
     }

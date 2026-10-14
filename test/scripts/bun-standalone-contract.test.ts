@@ -12,7 +12,9 @@ import {
 
 const roots: string[] = [];
 afterEach(() => {
-  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-standalone-contract-"));
@@ -57,20 +59,18 @@ describe("standalone build interface", () => {
       "a.d.cts",
       "addon.node",
       "package.json",
-    ])
+    ]) {
       fs.writeFileSync(path.join(runtime, name), "123");
+    }
     fs.symlinkSync("a.js", path.join(runtime, "linked.js.map"));
     expect(pruneStandaloneRuntime(runtime)).toEqual({
       patterns: ["**/*.map", "**/*.d.ts", "**/*.d.mts", "**/*.d.cts"],
       removedFiles: 4,
       removedBytes: 12,
     });
-    expect(fs.readdirSync(runtime).sort()).toEqual([
-      "a.js",
-      "addon.node",
-      "linked.js.map",
-      "package.json",
-    ]);
+    expect(
+      fs.readdirSync(runtime).toSorted((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
+    ).toEqual(["a.js", "addon.node", "linked.js.map", "package.json"]);
   });
 
   it("describes the executable and deterministic sidecar without following links", async () => {

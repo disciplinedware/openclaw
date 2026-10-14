@@ -32,7 +32,7 @@ export function assertStandaloneCompiler(mode, help) {
   }
 }
 
-export function standaloneMacosEntitlements(mode) {
+function standaloneMacosEntitlements(mode) {
   return {
     ...(mode === "aot" ? {} : { "com.apple.security.cs.allow-jit": true }),
     "com.apple.security.cs.disable-library-validation": true,

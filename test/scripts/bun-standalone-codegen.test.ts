@@ -14,7 +14,7 @@ describe("standalone fixed code generation", () => {
     const transform = createStandaloneCodegenTransform({ programs: [program], parse });
     const source = `import { compileFunction as compile } from "node:vm";
 const SOURCE = "const prefix = 3;";
-const fn = compile(\`${"${SOURCE}"}\nreturn value + prefix;\`, ["value"]);
+const fn = compile(\`\${SOURCE}\nreturn value + prefix;\`, ["value"]);
 function local(compile) { return compile("not a fixed program"); }
 [fn(4), local(() => 11)];`;
     const result = transform.transform({ filename: "/runtime/dist/example.mjs", contents: source });
@@ -42,7 +42,9 @@ export const dynamic = (source) => compileFunction(source, []);`;
     const source = "Error.stackTraceLimit = 9; delete Error.prepareStackTrace;";
     const result = transform.transform({ filename: "library.mjs", contents: source });
     expect(result.guardedIntrinsicWrites).toBe(aot ? 2 : 0);
-    if (!aot) expect(result.contents).toBe(source);
+    if (!aot) {
+      expect(result.contents).toBe(source);
+    }
     const Error = Object.freeze({ stackTraceLimit: 2, prepareStackTrace: undefined });
     if (aot) {
       expect(() => vm.runInNewContext(`'use strict'; ${result.contents}`, { Error })).not.toThrow();
@@ -65,7 +67,9 @@ export const dynamic = (source) => compileFunction(source, []);`;
         },
       );
       expect(evaluate()).toBe(!aot);
-      if (!aot) expect(result.contents).toBe(source);
+      if (!aot) {
+        expect(result.contents).toBe(source);
+      }
     }
   });
 });

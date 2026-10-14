@@ -33,9 +33,13 @@ if (options.help) {
   console.log(STANDALONE_USAGE);
   process.exit(0);
 }
-if (!globalThis.Bun) throw new Error(`Run this builder with Bun.\n${STANDALONE_USAGE}`);
+if (!globalThis.Bun) {
+  throw new Error(`Run this builder with Bun.\n${STANDALONE_USAGE}`);
+}
 const compilerIdentity = spawnSync(process.execPath, ["--revision"], { encoding: "utf8" });
-if (compilerIdentity.status !== 0) throw new Error("Cannot determine the Bun compiler revision.");
+if (compilerIdentity.status !== 0) {
+  throw new Error("Cannot determine the Bun compiler revision.");
+}
 const { mode, compileFlags } = options;
 if (mode === "aot") {
   const help = spawnSync(process.execPath, ["build", "--help"], { encoding: "utf8" });
@@ -618,7 +622,9 @@ if (compiled.status !== 0) {
 }
 const pruning = pruneStandaloneRuntime(runtimeRoot);
 const commit = spawnSync("git", ["rev-parse", "HEAD"], { cwd: sourceRoot, encoding: "utf8" });
-if (commit.status !== 0) throw new Error("Cannot determine the OpenClaw source commit.");
+if (commit.status !== 0) {
+  throw new Error("Cannot determine the OpenClaw source commit.");
+}
 const manifest = await createStandaloneManifest({
   outputRoot,
   mode,
