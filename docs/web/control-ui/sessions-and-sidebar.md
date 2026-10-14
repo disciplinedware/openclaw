@@ -25,7 +25,9 @@ on the device rather than being copied to or reconciled with the Gateway. See
 
 The icon rail stays separate from the selected navigation list. **Pages** opens
 available built-in pages, dashboards, and plugin destinations, **Sessions** opens conversations,
-and **Online** shows connected people. Hover or focus an icon for its name.
+and **Online** shows connected people. Pages always hides dashboards from archived
+sessions and has no archive toggle. To find archived sessions in the sidebar,
+use the **Sessions** filter instead. Hover or focus an icon for its name.
 The active agent's avatar sits at the top of the rail and opens the agent menu;
 in team mode it opens the workspace menu. The accented **+**, labeled **New conversation**,
 sits directly below the avatar, separated from navigation by a divider. It stays in
