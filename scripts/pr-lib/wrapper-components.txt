@@ -220,6 +220,7 @@ scripts/lib/vitest-shard-metadata.mts
 scripts/lib/vitest-test-runtime.mts
 scripts/lib/vitest-unhandled-errors.mts
 scripts/lib/vitest-worker-artifacts.mts
+scripts/lib/vitest-worker-bootstrap.mts
 scripts/lib/vitest-worker-cache-policy.mts
 scripts/lib/vitest-worker-declarations.mts
 scripts/lib/vitest-worker-run.mts
