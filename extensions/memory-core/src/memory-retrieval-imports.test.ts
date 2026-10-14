@@ -2,13 +2,19 @@ import { expect, it, vi } from "vitest";
 
 // mock-isolation: Pure memory selectors must load without initializing session storage.
 vi.mock("openclaw/plugin-sdk/memory-core-host-engine-sessions", () => {
-  throw new Error("Memory identity selectors loaded the session-store runtime");
+  throw new Error("Memory retrieval selectors loaded the session-store runtime");
 });
 
-it("loads indexing and Forget identity selectors without session storage", async () => {
-  const [{ referencesSession }, { isMemorySessionIndexable }] = await Promise.all([
-    import("./memory-forget-content.js"),
-    import("./memory/manager-session-sync-state.js"),
+it("loads retrieval query and identity selectors without session storage", async () => {
+  const [{ referencesSession }, { isMemorySessionIndexable }, { planKeywordSearch }] =
+    await Promise.all([
+      import("./memory-forget-content.js"),
+      import("./memory/manager-session-sync-state.js"),
+      import("./memory/keyword-query.js"),
+    ]);
+  expect(planKeywordSearch({ query: "API deployment", matchAny: true }).tokens).toEqual([
+    "API",
+    "deployment",
   ]);
   const entry = {
     generatedByDreamingNarrative: false,
