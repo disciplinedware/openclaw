@@ -31,6 +31,12 @@ type MarkdownSidebarContent = {
   content: string;
   rawText?: string | null;
   fileLinkSessionKey?: string;
+  fileDownload?: {
+    path: string;
+    name: string;
+    size?: number;
+    download: (signal: AbortSignal) => Promise<Blob | null>;
+  };
 };
 
 type CanvasSidebarContent = {
@@ -127,6 +133,7 @@ export type FileSidebarContent = {
   kind: "file";
   path: string;
   name: string;
+  size?: number;
   content: string;
   download?: (signal: AbortSignal) => Promise<Blob | null>;
   sessionFileSource?: SessionFileSource;

@@ -67,6 +67,7 @@ function formatFileUpdatedAt(updatedAtMs: number | undefined): string | null {
 function unsupportedFileSidebarContent(
   file: SessionWorkspaceGetResult["file"],
   fallbackPath: string,
+  download: (signal: AbortSignal) => Promise<Blob | null>,
 ): SidebarContent {
   const filePath = file.workspacePath || file.path || fallbackPath;
   const updatedAt = formatFileUpdatedAt(file.updatedAtMs);
@@ -83,6 +84,12 @@ function unsupportedFileSidebarContent(
     kind: "markdown",
     content,
     rawText: content,
+    fileDownload: {
+      path: filePath,
+      name: file.name || pathDisplayName(filePath),
+      size: file.size,
+      download,
+    },
   };
 }
 
@@ -189,10 +196,36 @@ function openFile(
     state,
     workspace,
     viewingSession ? `file:${requestPath}` : JSON.stringify(["file", sessionKey, requestPath]),
-    () =>
-      state.sessions.getFile(sessionKey, requestPath, {
-        agentId,
-      }),
+    async () => {
+      try {
+        return await state.sessions.getFile(sessionKey, requestPath, { agentId });
+      } catch (error) {
+        const details = error instanceof GatewayRequestError ? error.details : null;
+        if (
+          details &&
+          typeof details === "object" &&
+          "type" in details &&
+          details.type === "session_file_too_large" &&
+          "size" in details &&
+          typeof details.size === "number"
+        ) {
+          // The authorized read supplies metadata even when its preview bytes are unavailable.
+          const metadata: SessionWorkspaceGetResult = {
+            sessionKey,
+            file: {
+              path: requestPath,
+              name: pathDisplayName(path),
+              size: details.size,
+              kind: "read",
+              missing: false,
+              previewKind: "unsupported",
+            },
+          };
+          return metadata;
+        }
+        throw error;
+      }
+    },
     (result) => {
       const file = result.file;
       if (!file) {
@@ -200,6 +233,12 @@ function openFile(
       }
       const name = file.name || pathDisplayName(path);
       const filePath = file.workspacePath || file.path || path;
+      const download = (signal: AbortSignal) =>
+        downloadSessionFile(
+          state,
+          { sessionKey: result.sessionKey, agentId, path: requestPath },
+          signal,
+        );
       if (file.previewKind === "image") {
         if (
           file.contentEncoding !== "base64" ||
@@ -219,7 +258,7 @@ function openFile(
       }
       if (file.previewKind === "unsupported") {
         return {
-          ...unsupportedFileSidebarContent(file, path),
+          ...unsupportedFileSidebarContent(file, path, download),
           fileLinkSessionKey: result.sessionKey,
         };
       }
@@ -307,17 +346,9 @@ function openFile(
         kind: "file",
         path: filePath,
         name,
+        size: file.size,
         content: text,
-        download: (signal: AbortSignal) =>
-          downloadSessionFile(
-            state,
-            {
-              sessionKey: result.sessionKey,
-              agentId,
-              path: requestPath,
-            },
-            signal,
-          ),
+        download,
         sessionFileSource: {
           sessionKey: result.sessionKey,
           agentId,

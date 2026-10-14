@@ -11,6 +11,34 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it.each([
+  { size: undefined, disabled: false },
+  { size: 8 * 1024 * 1024 - 1, disabled: false },
+  { size: 8 * 1024 * 1024, disabled: false },
+  { size: 8 * 1024 * 1024 + 1, disabled: true },
+])("keeps the download size boundary inclusive: %j", ({ size, disabled }) => {
+  const download = vi.fn().mockResolvedValue(null);
+  const view = mountSolid(() => (
+    <FileDownloadButton
+      filename="file.bin"
+      scopeKey="file"
+      size={size}
+      download={download}
+      class="download"
+    />
+  ));
+  const button = view.container.querySelector("button");
+  if (!button) {
+    throw new Error("Download button is missing");
+  }
+  expect(button.disabled).toBe(disabled);
+  expect(view.container.querySelector("openclaw-tooltip")?.content).toBe(
+    disabled ? "Files over 8 MiB are not available for download." : "Download file",
+  );
+  button.click();
+  expect(download).toHaveBeenCalledTimes(disabled ? 0 : 1);
+});
+
 it.each(["unmount", "session", "connection"])(
   "does not save bytes after %s changes",
   async (change) => {

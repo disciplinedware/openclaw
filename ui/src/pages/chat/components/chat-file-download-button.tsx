@@ -1,4 +1,5 @@
 import { createSignal, onCleanup } from "solid-js";
+import { WORKSPACE_DOWNLOAD_MAX_BYTES } from "../../../../../src/gateway/workspace-file-limits.js";
 import { Icon } from "../../../components/solid/icon.tsx";
 import "../../../components/tooltip.ts";
 import { registerFilePreviewEnglish } from "../../../i18n/locales/en-file-preview.ts";
@@ -11,12 +12,14 @@ registerFilePreviewEnglish();
 
 export function FileDownloadButton(props: {
   filename: string;
+  size?: number;
   scopeKey: string;
   download: (signal: AbortSignal) => Promise<Blob | null>;
   class: string;
   disabled?: boolean;
 }) {
   const [pending, setPending] = createSignal(false);
+  const tooLarge = () => (props.size ?? 0) > WORKSPACE_DOWNLOAD_MAX_BYTES;
   let request: AbortController | null = null;
   let disposed = false;
   onCleanup(() => {
@@ -24,7 +27,7 @@ export function FileDownloadButton(props: {
     request?.abort();
   });
   const download = async () => {
-    if (request || props.disabled) {
+    if (request || props.disabled || tooLarge()) {
       return;
     }
     const controller = new AbortController();
@@ -64,12 +67,12 @@ export function FileDownloadButton(props: {
   const label = () =>
     t(pending() ? "chat.detailPanel.downloading" : "chat.detailPanel.downloadFile");
   return (
-    <openclaw-tooltip prop:content={label()}>
+    <openclaw-tooltip prop:content={tooLarge() ? t("chat.detailPanel.downloadTooLarge") : label()}>
       <button
         class={props.class}
         type="button"
         aria-label={label()}
-        disabled={props.disabled || pending()}
+        disabled={props.disabled || tooLarge() || pending()}
         ref={(button) =>
           button.addEventListener("click", (event) => {
             event.stopPropagation();

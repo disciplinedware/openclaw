@@ -317,6 +317,10 @@
   padding: 0;
 }
 
+.chat-workspace-rail__row-action:disabled {
+  opacity: 0.45;
+}
+
 .chat-workspace-rail__row-action,
 .chat-workspace-rail__row-actions :where(.chat-copy-btn) {
   display: inline-grid;

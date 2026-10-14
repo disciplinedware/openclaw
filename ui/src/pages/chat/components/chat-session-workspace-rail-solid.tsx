@@ -253,6 +253,7 @@ function WorkspaceContents(props: { workspace: SessionWorkspaceProps }) {
                 {(download) => (
                   <FileDownloadButton
                     filename={file().name}
+                    size={file().size}
                     scopeKey={[
                       props.workspace.sessionKey,
                       file().path,
@@ -443,6 +444,7 @@ function WorkspaceContents(props: { workspace: SessionWorkspaceProps }) {
                               {(download) => (
                                 <FileDownloadButton
                                   filename={entry().name}
+                                  size={entry().size}
                                   scopeKey={[
                                     props.workspace.sessionKey,
                                     entry().path,

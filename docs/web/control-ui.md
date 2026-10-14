@@ -248,6 +248,9 @@ next to Preview and Copy path. The same action is available in the file preview
 toolbar. It saves the original file through your browser without opening another
 page; unsaved editor changes are not included. Downloads support files up to 8 MiB,
 independently of the inline-preview limit. Folders are not downloadable.
+Files above this limit keep a disabled download button; hovering it explains
+that files over 8 MiB are not available for download. Files too large to preview
+still show their metadata and download action without loading their contents.
 
 Downloads use the session's existing file-read access, including managed repository
 workspaces. A failed download shows an error and can be retried from the same button.

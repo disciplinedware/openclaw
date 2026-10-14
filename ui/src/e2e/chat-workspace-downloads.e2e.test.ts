@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import photon from "@silvia-odwyer/photon-node";
 import type { Locator } from "playwright";
 import { expect, it } from "vitest";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
@@ -172,6 +173,105 @@ suite.define(() => {
       ]);
       expect(page.url()).toBe(originalUrl);
       expect(context.pages()).toHaveLength(1);
+    } finally {
+      await suite.closeBrowserContext(context);
+    }
+  });
+
+  it("keeps oversized downloads visible but disabled in Files and the preview", async () => {
+    const context = await suite.newBrowserContext(createControlUiE2eContextOptions());
+    const page = await context.newPage();
+    const size = 8 * 1024 * 1024 + 1;
+    const reason = "Files over 8 MiB are not available for download.";
+    const gateway = await installMockGateway(page, {
+      methodResponses: {
+        "sessions.files.list": {
+          sessionKey: "agent:main:main",
+          root: "/workspace/project",
+          files: [],
+          browser: {
+            path: "",
+            entries: [{ kind: "file", name: "large.txt", path: "large.txt", size }],
+          },
+        },
+      },
+    });
+    const parent = process.env.OPENCLAW_UI_E2E_ARTIFACT_DIR?.trim();
+    const artifacts = parent
+      ? createControlUiE2eArtifactDir("file-download-size-limit", parent)
+      : undefined;
+    const capture = async (surface: Locator, name: string, tooltip?: Locator) => {
+      if (!artifacts) {
+        return;
+      }
+      const frame = await takeControlUiScreenshotFrame(page, surface, [surface], {
+        elements: tooltip ? [surface, tooltip] : [surface],
+        animations: "disabled",
+      });
+      const bounds = frame.elements.map((element) => element.pixelBounds);
+      const left = Math.min(...bounds.map((box) => box.x));
+      const top = Math.min(...bounds.map((box) => box.y));
+      const right = Math.max(...bounds.map((box) => box.x + box.width));
+      const bottom = Math.max(...bounds.map((box) => box.y + box.height));
+      const image = photon.PhotonImage.new_from_byteslice(frame.png);
+      try {
+        const crop = photon.crop(image, left, top, right, bottom);
+        try {
+          await writeFile(path.join(artifacts, name), Buffer.from(crop.get_bytes()));
+        } finally {
+          crop.free();
+        }
+      } finally {
+        image.free();
+      }
+    };
+    try {
+      await page.goto(suite.server.baseUrl + "chat");
+      await openChatSidePanelType(page, "Files");
+      const rail = page.locator(".chat-workspace-rail");
+      const row = rail.getByRole("listitem").filter({ hasText: "large.txt" });
+      const download = row.getByRole("button", { name: "Download file", exact: true });
+      await download.hover();
+      await capture(rail, "oversized-list.png");
+      const previous = await gateway.deferNext("sessions.files.get");
+      await row.getByRole("button", { name: "large.txt", exact: true }).click();
+      await gateway.waitForRequest("sessions.files.get", { after: previous });
+      await gateway.rejectDeferred("sessions.files.get", {
+        code: "INVALID_REQUEST",
+        message: "session file is too large to preview",
+        details: {
+          type: "session_file_too_large",
+          size,
+          path: "/workspace/project/large.txt",
+          maxPreviewBytes: 256 * 1024,
+        },
+      });
+      const panel = page
+        .locator(".chat-files-panel__page:visible")
+        .filter({ hasText: /too large to preview|not previewable inline/ });
+      await panel.waitFor();
+      await capture(panel, "oversized-preview.png");
+      const previewDownload = panel.getByRole("button", { name: "Download file", exact: true });
+      expect(await previewDownload.count()).toBe(1);
+      expect(await previewDownload.isDisabled()).toBe(true);
+      await previewDownload.hover();
+      await page.getByRole("tooltip").filter({ hasText: reason }).waitFor();
+      await capture(
+        panel,
+        "oversized-preview-hover.png",
+        page.getByRole("tooltip").filter({ hasText: reason }),
+      );
+      await panel.getByRole("button", { name: "Show in Files", exact: true }).click();
+      expect(await download.isDisabled()).toBe(true);
+      await download.hover();
+      await page.getByRole("tooltip").filter({ hasText: reason }).waitFor();
+      await capture(
+        rail,
+        "oversized-list-hover.png",
+        page.getByRole("tooltip").filter({ hasText: reason }),
+      );
+      await download.dispatchEvent("click");
+      expect(await gateway.getRequests("sessions.files.download")).toHaveLength(0);
     } finally {
       await suite.closeBrowserContext(context);
     }
