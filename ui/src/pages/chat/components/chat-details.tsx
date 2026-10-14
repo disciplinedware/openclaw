@@ -56,7 +56,12 @@ export const ChatDetails = defineSolidBridge<Props, Methods>(
         return;
       }
       const viewport = window.visualViewport;
-      const minimumTop = Math.max(bounds.top + 8, (viewport?.offsetTop ?? 0) + 8);
+      // A desktop-open inspector can survive a mobile resize without an opener.
+      // Keep the persistent Panels header reachable in that case too.
+      const headerBottom = mobile
+        ? pane?.querySelector(".sidebar-region__header")?.getBoundingClientRect().bottom
+        : undefined;
+      const minimumTop = Math.max((headerBottom ?? bounds.top) + 8, (viewport?.offsetTop ?? 0) + 8);
       const left = Math.max(bounds.left + 8, (viewport?.offsetLeft ?? 0) + 8);
       const right = Math.min(
         bounds.right - 8,
