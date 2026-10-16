@@ -44,6 +44,7 @@ import {
   type WhatsAppNormalizedInboundMessage,
 } from "./message-normalization.js";
 import { addWhatsAppOutboundMentionsToContent } from "./outbound-mentions.js";
+import { createWhatsAppOwnMessageHandler } from "./own-message-delivery.js";
 import { normalizeWhatsAppSendResult } from "./send-result.js";
 import type { WhatsAppAttachedSocketSession } from "./socket-session.js";
 import type { WebInboundCallbackMessage } from "./types.js";
@@ -197,7 +198,8 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
         overrideMs: options.debounceMs,
       }),
     onMessage: options.onMessage,
-    shouldDebounce: options.shouldDebounce,
+    // An owner turn stays one message: batching would merge it with the owner's own messages and drop its ownMessage facts.
+    shouldDebounce: (msg) => !msg.ownMessage && (options.shouldDebounce?.(msg) ?? true),
     markRead: maybeMarkInboundAsRead,
     onPendingWorkChanged: publishPendingWorkState,
     onError: (error) => {
@@ -228,17 +230,7 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
   type PreparedInbound = NonNullable<Awaited<ReturnType<typeof normalizeInboundMessage>>>;
   const preparedInboundByDurableId = new Map<string, Promise<PreparedInbound | null | undefined>>();
 
-  const enqueueInboundMessage = async (
-    msg: WAMessage,
-    inbound: WhatsAppNormalizedInboundMessage,
-    enriched: WhatsAppEnrichedInboundMessage,
-    durable: {
-      readReceipt?: WhatsAppReadReceiptTarget;
-      receiveOrder?: number;
-      turnAdoptionLifecycle?: WhatsAppIngressLifecycle;
-    },
-  ) => {
-    const chatJid = inbound.remoteJid;
+  const createChatTransport = (chatJid: string) => {
     const sendComposing = async () => {
       const currentSock = getCurrentSock();
       if (!currentSock) {
@@ -272,6 +264,20 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
       );
       return normalizeWhatsAppSendResult(result, "media");
     };
+    return { sendComposing, reply, sendMedia };
+  };
+
+  const enqueueInboundMessage = async (
+    msg: WAMessage,
+    inbound: WhatsAppNormalizedInboundMessage,
+    enriched: WhatsAppEnrichedInboundMessage,
+    durable: {
+      readReceipt?: WhatsAppReadReceiptTarget;
+      receiveOrder?: number;
+      turnAdoptionLifecycle?: WhatsAppIngressLifecycle;
+    },
+  ) => {
+    const { sendComposing, reply, sendMedia } = createChatTransport(inbound.remoteJid);
     const timestamp = inbound.messageTimestampMs;
     const mentionedJids = enriched.mentionedJids;
     const senderName = msg.pushName ?? undefined;
@@ -401,6 +407,21 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
       logVerboseMessage: (message) => logWhatsAppVerbose(options.verbose, message),
     });
 
+  const handleOwnMessage = createWhatsAppOwnMessageHandler({
+    cfg: options.cfg,
+    loadConfig: options.loadConfig,
+    accountId: options.accountId,
+    verbose: options.verbose,
+    self,
+    resolveInboundJid,
+    sendTrackedMessage,
+    createChatTransport,
+    enqueue: (message) => messageDebouncer.enqueue(message),
+    parseTimestampSeconds: parseWhatsAppTimestampSeconds,
+    logVerbose: (message) => logWhatsAppVerbose(options.verbose, message),
+    logWarn: (message, details) => inboundLogger.warn(details, message),
+  });
+
   const processDurableInboundMessage = async (
     admission: WhatsAppIngressAdmission,
     lifecycle: WhatsAppIngressLifecycle,
@@ -422,6 +443,10 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
     // owns the claim so transient failures remain replayable.
     if (await resolveApprovalReaction(msg)) {
       return "completed";
+    }
+    const ownMessageResult = await handleOwnMessage(msg, context, lifecycle);
+    if (ownMessageResult) {
+      return ownMessageResult;
     }
     const prepared = await preparation;
     if (prepared === null) {

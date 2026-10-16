@@ -22,6 +22,7 @@ import {
 import {
   buildNotifyMessageUpsert,
   DEFAULT_ACCOUNT_ID,
+  mockLoadConfig,
   resetWebInboundDedupeForTests,
   settleInboundWork,
   startInboxMonitor,
@@ -113,6 +114,12 @@ describe("web monitor inbox delivery and dedupe", () => {
           await finishReplay.promise;
           return { applied: true, approval: { status: "allowed", decision: "allow-once" } };
         });
+      // Only a resolved approver settles a reaction; allowFrom admits senders only.
+      mockLoadConfig.mockReturnValue({
+        channels: {
+          whatsapp: { allowFrom: ["*"], execApprovals: { approvers: ["+15551230000"] } },
+        },
+      });
       const onMessage = vi.fn();
       const queue = createWhatsAppDurableInboundQueue(DEFAULT_ACCOUNT_ID);
       const release = observeRetryRelease(queue);

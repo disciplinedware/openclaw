@@ -6,6 +6,7 @@ import type {
 } from "openclaw/plugin-sdk/channel-inbound";
 import type { PollInput } from "openclaw/plugin-sdk/poll-runtime";
 import type { WhatsAppIdentity, WhatsAppReplyContext, WhatsAppSelfIdentity } from "../identity.js";
+import type { WhatsAppOwnMessageTurnFacts } from "../own-messages.js";
 import type { WhatsAppQuotedMessageKey } from "../quoted-message.js";
 import type { WhatsAppInboundAdmission } from "./admission.js";
 import type { WhatsAppSendResult } from "./send-result.js";
@@ -135,6 +136,8 @@ export type WebInboundCallbackMessage = {
     wasMentioned: boolean;
     requireMention: boolean;
   };
+  /** Set on the owner turn that an own message (`ownMessages: "turn"`) starts. */
+  ownMessage?: WhatsAppOwnMessageTurnFacts;
 };
 
 export type WebInboundMessage = WebInboundCallbackMessage;

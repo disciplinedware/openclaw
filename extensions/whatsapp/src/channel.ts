@@ -29,6 +29,7 @@ import {
   normalizeWhatsAppMessagingTarget,
   normalizeWhatsAppTarget,
 } from "./normalize-target.js";
+import { WHATSAPP_TARGET_HINT } from "./resolve-outbound-target.js";
 import { getWhatsAppRuntime } from "./runtime.js";
 import { sendTypingWhatsApp } from "./send.js";
 import { resolveWhatsAppOutboundSessionRoute } from "./session-route.js";
@@ -121,7 +122,7 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> =
         normalizeTarget: normalizeWhatsAppMessagingTarget,
         resolveOutboundSessionRoute: resolveWhatsAppOutboundSessionRoute,
         inferTargetChatType: ({ to }) => {
-          const normalized = normalizeWhatsAppTarget(to);
+          const normalized = normalizeWhatsAppMessagingTarget(to);
           return !normalized
             ? undefined
             : isWhatsAppGroupJid(normalized)
@@ -132,7 +133,7 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> =
         },
         targetResolver: {
           looksLikeId: looksLikeWhatsAppTargetId,
-          hint: "<E.164|group JID|newsletter JID>",
+          hint: WHATSAPP_TARGET_HINT,
         },
       },
       message: whatsappMessageAdapter,

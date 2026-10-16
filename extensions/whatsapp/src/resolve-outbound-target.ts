@@ -1,6 +1,12 @@
 import { missingTargetError } from "openclaw/plugin-sdk/channel-feedback";
 import { normalizeStringEntries } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { normalizeWhatsAppTarget } from "./normalize-target.js";
+import {
+  isWhatsAppOwnerTarget,
+  normalizeWhatsAppTarget,
+  WHATSAPP_OWNER_TARGET,
+} from "./normalize-target.js";
+
+export const WHATSAPP_TARGET_HINT = "<E.164|group JID|newsletter JID|owner>";
 
 type WhatsAppOutboundTargetResolution = { ok: true; to: string } | { ok: false; error: Error };
 
@@ -9,11 +15,16 @@ export function resolveWhatsAppOutboundTarget(params: {
   allowFrom: Array<string | number> | null | undefined;
   mode: string | null | undefined;
 }): WhatsAppOutboundTargetResolution {
-  const normalizedTo = normalizeWhatsAppTarget(params.to ?? "");
+  const trimmed = params.to?.trim() ?? "";
+  // The owner is a command owner, admitted by definition; the transport resolves the number.
+  if (isWhatsAppOwnerTarget(trimmed)) {
+    return { ok: true, to: WHATSAPP_OWNER_TARGET };
+  }
+  const normalizedTo = normalizeWhatsAppTarget(trimmed);
   if (!normalizedTo) {
     return {
       ok: false,
-      error: missingTargetError("WhatsApp", "<E.164|group JID|newsletter JID>"),
+      error: missingTargetError("WhatsApp", WHATSAPP_TARGET_HINT),
     };
   }
   if (normalizedTo.endsWith("@g.us") || normalizedTo.endsWith("@newsletter")) {

@@ -340,12 +340,12 @@ Generic model:
 - Google Chat native approval cards handle exec and plugin approvals that originate from Google
   Chat spaces or threads when stable `users/<id>` approvers resolve from `dm.allowFrom` or
   `defaultTo`; they do not use reaction events for decisions
-- WhatsApp and Signal reaction approval delivery are gated by `approvals.exec` and
-  `approvals.plugin`; they do not have `channels.<channel>.execApprovals` blocks
+- Signal reaction approval delivery is gated by `approvals.exec` and `approvals.plugin`; it does
+  not have a `channels.signal.execApprovals` block
 
 For channels with an `execApprovals` block, enable native delivery by setting
 `enabled: true` or `"auto"` and configuring resolvable approvers. Defaults vary by
-channel: Discord and Slack require explicit enablement; Telegram treats unset as
+channel: Discord and Slack require explicit enablement; Telegram and WhatsApp treat unset as
 `"auto"`. Approvers can come from `execApprovals.approvers` or the channel's
 supported owner configuration, such as `commands.ownerAllowFrom`.
 
@@ -361,7 +361,7 @@ FAQ: [Why are there two exec approval configs for chat approvals?](/help/faq-fir
 - QQ bot: `channels.qqbot.execApprovals.*`
 - Google Chat: configure stable approvers with `channels.googlechat.dm.allowFrom` or
   `channels.googlechat.defaultTo`; no `execApprovals` block is required
-- WhatsApp: use `approvals.exec` and `approvals.plugin` to route approval prompts to WhatsApp
+- WhatsApp: `channels.whatsapp.execApprovals.*`
 - Signal: use `approvals.exec` and `approvals.plugin` to route approval prompts to Signal
 
 Native-client-specific routing:
@@ -369,8 +369,9 @@ Native-client-specific routing:
 - Telegram defaults to approver DMs (`target: "dm"`). Switch to `channel` or `both` to also show
   approval prompts in the originating Telegram chat/topic. For Telegram forum topics, OpenClaw
   preserves the topic for the approval prompt and the post-approval follow-up.
-- Discord and Telegram approvers can be explicit (`execApprovals.approvers`) or inferred from
-  `commands.ownerAllowFrom`; only resolved approvers can approve or deny.
+- Discord, Telegram, and WhatsApp approvers can be explicit (`execApprovals.approvers`) or inferred
+  from `commands.ownerAllowFrom`; only resolved approvers can approve or deny. WhatsApp defaults to
+  approver DMs (`target: "dm"`) and takes E.164 numbers.
 - Slack approvers can be explicit (`execApprovals.approvers`) or inferred from
   `commands.ownerAllowFrom`. Slack plugin approval DMs use Slack plugin approvers from `allowFrom`
   and account default routing, not Slack exec approvers. Slack native buttons preserve approval id
@@ -378,9 +379,9 @@ Native-client-specific routing:
 - Google Chat native cards preserve the manual `/approve` fallback in message text, but card button
   callbacks carry only opaque action tokens; the approval id and decision are recovered from
   server-side pending state.
-- WhatsApp emoji approvals handle both exec and plugin prompts when the matching top-level
-  forwarding family routes to WhatsApp. Native-origin prompts bind directly; shared target-mode
-  delivery binds the same typed approval metadata to the accepted WhatsApp message receipt.
+- WhatsApp emoji approvals handle exec, plugin, and system-agent prompts. Native prompts bind
+  directly; shared target-mode delivery binds the same typed approval metadata to the accepted
+  WhatsApp message receipt.
 - Signal reaction approvals handle both exec and plugin prompts only when the matching top-level
   forwarding family is enabled and routes to Signal. Direct same-chat Signal exec approvals can
   suppress the local `/approve` fallback without explicit approvers; Signal reaction resolution
