@@ -17,6 +17,16 @@ function formatReplyTarget(replyTo: WhatsAppReplyContext | null) {
   return `[Replying to ${sender}${idPart}]\n${replyTo.body}\n[/Replying]`;
 }
 
+/** The envelope `from` of a WhatsApp conversation: the group id, or the bare direct peer. */
+export function formatWhatsAppEnvelopeFrom(conversation: {
+  id: string;
+  kind: "direct" | "group";
+}): string {
+  return conversation.kind === "group"
+    ? conversation.id
+    : conversation.id.replace(/^whatsapp:/, "");
+}
+
 export function buildInboundLine(params: {
   msg: AdmittedWebInboundMessage;
   previousTimestamp?: number;
@@ -24,8 +34,11 @@ export function buildInboundLine(params: {
   visibleReplyTo?: WhatsAppReplyContext | null;
 }) {
   const { msg, previousTimestamp, envelope } = params;
+  if (msg.ownMessage) {
+    // The owner turn's body already is the envelope of the own message, from the other person's chat.
+    return msg.payload.body;
+  }
   const admission = requireWhatsAppInboundAdmission(msg);
-  const conversationId = admission.conversation.id;
   const conversationKind = admission.conversation.kind;
   const replyContext = formatReplyTarget(
     params.visibleReplyTo === undefined ? getReplyContext(msg) : params.visibleReplyTo,
@@ -35,7 +48,7 @@ export function buildInboundLine(params: {
 
   return formatInboundEnvelope({
     channel: "WhatsApp",
-    from: conversationKind === "group" ? conversationId : conversationId.replace(/^whatsapp:/, ""),
+    from: formatWhatsAppEnvelopeFrom(admission.conversation),
     timestamp: msg.event.timestamp,
     body: baseLine,
     chatType: conversationKind,

@@ -51,7 +51,11 @@ import {
   updateWhatsAppMainLastRoute,
 } from "./inbound-dispatch.js";
 import { trackBackgroundTask, updateLastRouteInBackground } from "./last-route.js";
-import { buildInboundLine } from "./message-line.js";
+import { buildInboundLine, formatWhatsAppEnvelopeFrom } from "./message-line.js";
+import {
+  consumeWhatsAppOwnMessageHistory,
+  loadWhatsAppOwnMessageHistory,
+} from "./own-message-context.js";
 import {
   buildHistoryContextFromEntries,
   createChannelMessageReplyPipeline,
@@ -258,28 +262,44 @@ export async function processMessage(params: {
         })
       : undefined;
 
-  if (conversationKind === "group") {
-    const history = visibleGroupHistory ?? [];
-    if (history.length > 0) {
-      combinedBody = buildHistoryContextFromEntries({
-        entries: history,
-        currentMessage: combinedBody,
-        excludeLast: false,
-        formatEntry: (entry) => {
-          return formatInboundEnvelope({
-            channel: "WhatsApp",
-            from: conversationId,
-            timestamp: entry.timestamp,
-            body: [entry.body, formatMediaPlaceholderText(entry.media ?? [])]
-              .filter(Boolean)
-              .join("\n"),
-            chatType: "group",
-            senderLabel: entry.sender,
-            envelope: envelopeOptions,
-          });
-        },
-      });
-    }
+  const sender = getSenderIdentity(params.msg);
+  const dmRouteTarget = resolveWhatsAppDmRouteTarget({
+    msg: params.msg,
+    senderE164: sender.e164 ?? undefined,
+    normalizeE164,
+  });
+  const ownMessageHistory = await loadWhatsAppOwnMessageHistory({
+    account,
+    msg: params.msg,
+    conversationKind,
+    peerE164: dmRouteTarget,
+    limit: params.groupHistoryLimit ?? 0,
+  });
+  const contextHistory =
+    conversationKind === "group" ? (visibleGroupHistory ?? []) : (ownMessageHistory?.entries ?? []);
+  if (contextHistory.length > 0) {
+    combinedBody = buildHistoryContextFromEntries({
+      entries: contextHistory,
+      currentMessage: combinedBody,
+      excludeLast: false,
+      // Direct history is the platform-selected window that sessionTranscript marks "recent".
+      historyKind: conversationKind === "direct" ? "recent" : "pending",
+      formatEntry: (entry) => {
+        return formatInboundEnvelope({
+          channel: "WhatsApp",
+          from: formatWhatsAppEnvelopeFrom({ id: conversationId, kind: conversationKind }),
+          timestamp: entry.timestamp,
+          body: [entry.body, formatMediaPlaceholderText(entry.media ?? [])]
+            .filter(Boolean)
+            .join("\n"),
+          chatType: conversationKind,
+          senderLabel: entry.sender,
+          envelope: envelopeOptions,
+          // Direct history holds only own messages, which the account itself sent.
+          fromMe: conversationKind === "direct",
+        });
+      },
+    });
   }
 
   // When statusReactions.enabled, a StatusReactionController takes over lifecycle
@@ -339,13 +359,7 @@ export async function processMessage(params: {
     whatsappInboundLog.debug(`Inbound body: ${elide(combinedBody, 400)}`);
   }
 
-  const sender = getSenderIdentity(params.msg);
   const commandBody = params.msg.payload.commandBody ?? params.msg.payload.body;
-  const dmRouteTarget = resolveWhatsAppDmRouteTarget({
-    msg: params.msg,
-    senderE164: sender.e164 ?? undefined,
-    normalizeE164,
-  });
   const shouldCheckCommandAuth = shouldComputeCommandAuthorized(commandBody, params.cfg);
   const isTextCommand = isControlCommandMessage(commandBody, params.cfg);
   const commandAuthorized = shouldCheckCommandAuth
@@ -368,10 +382,13 @@ export async function processMessage(params: {
     isSelfChat: conversationKind !== "group" && inboundPolicy.isSelfChat,
     pipelineResponsePrefix: replyPipeline.responsePrefix,
   });
-  const replyThreading = resolveBatchedReplyThreadingPolicy(
-    account.replyToMode ?? "off",
-    params.msg.event.isBatched === true,
-  );
+  const replyThreading = params.msg.ownMessage
+    ? // An own-message turn has no message in the owner chat to quote.
+      { implicitCurrentMessage: "deny" as const }
+    : resolveBatchedReplyThreadingPolicy(
+        account.replyToMode ?? "off",
+        params.msg.event.isBatched === true,
+      );
 
   const conversationSystemPrompt =
     conversationKind === "group"
@@ -394,6 +411,7 @@ export async function processMessage(params: {
     },
     groupHistory: visibleGroupHistory,
     groupHistoryLimit: params.groupHistoryLimit,
+    directHistory: ownMessageHistory?.entries,
     groupMemberRoster: params.groupMemberNames.get(params.groupHistoryKey),
     groupSystemPrompt: conversationSystemPrompt,
     msg: params.msg,
@@ -459,6 +477,17 @@ export async function processMessage(params: {
         // context when dispatch fails so a later message can retry it.
         if (result.dispatched && turnAdmission.kind === "dispatch" && shouldClearGroupHistory) {
           params.groupHistories.set(params.groupHistoryKey, []);
+        }
+        if (result.dispatched && turnAdmission.kind === "dispatch" && ownMessageHistory) {
+          trackBackgroundTask(
+            params.backgroundTasks,
+            consumeWhatsAppOwnMessageHistory(ownMessageHistory).catch((err: unknown) => {
+              params.replyLogger.warn(
+                { error: formatError(err) },
+                "whatsapp: failed to clear consumed own-message history",
+              );
+            }),
+          );
         }
       },
       resolveTurn: () => {

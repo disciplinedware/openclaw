@@ -35,7 +35,11 @@ export function registerWhatsAppQuestionReactionTargetForDeliveredPayload(params
     accountId: params.target.accountId,
   }).accountId;
   let registered = false;
-  for (const identity of listWhatsAppDeliveredMessageIdentities(params.results, () => true)) {
+  for (const identity of listWhatsAppDeliveredMessageIdentities(
+    params.results,
+    () => true,
+    params.cfg,
+  )) {
     registered =
       questionReactionTargets.register(binding, { accountId, ...identity }) || registered;
   }

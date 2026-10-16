@@ -1,5 +1,8 @@
 import type { z } from "zod";
-import type { CommonChannelMessagingConfig } from "./types.channel-messaging-common.js";
+import type {
+  ChannelExecApprovalConfig,
+  CommonChannelMessagingConfig,
+} from "./types.channel-messaging-common.js";
 import type { GroupToolPolicyBySenderConfig } from "./types.tools.js";
 import type { WhatsAppConfigSchema } from "./zod-schema.providers-whatsapp.js";
 
@@ -24,10 +27,19 @@ export type WhatsAppAckReactionConfig = {
   group?: "always" | "mentions" | "never";
 };
 
+export type WhatsAppExecApprovalConfig = ChannelExecApprovalConfig<string> & {
+  /**
+   * Tell the chat a request came from that its approval went to approver DMs. Default: true.
+   * A business turns it off when that chat is a customer's.
+   */
+  notifyOrigin?: boolean;
+};
+
 type WhatsAppNarrowedConfig = {
   groups?: Record<string, WhatsAppGroupConfig>;
   direct?: Record<string, WhatsAppDirectConfig>;
   ackReaction?: WhatsAppAckReactionConfig;
+  execApprovals?: WhatsAppExecApprovalConfig;
 };
 
 export type WhatsAppAccountConfig = Omit<

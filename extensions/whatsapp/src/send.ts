@@ -35,6 +35,7 @@ import {
   prepareWhatsAppOutboundMedia,
   resolveAdditiveWhatsAppMediaUrls,
 } from "./outbound-media-contract.js";
+import { resolveWhatsAppSendTarget, sendToWhatsAppTarget } from "./owner-target.js";
 import type { WhatsAppQuotedMessageKey } from "./quoted-message.js";
 import { markdownToWhatsAppChunks, toWhatsappJid } from "./targets-runtime.js";
 
@@ -111,8 +112,19 @@ export async function sendWhatsAppUploadFile(
   body: string,
   options: Parameters<typeof sendMessageWhatsApp>[2] & { fileName?: string; contentType?: string },
 ): Promise<{ messageId: string; toJid: string }> {
-  return await withWhatsAppLogicalDeliveryActivity(() =>
-    sendMessageWhatsAppInActivityScope(to, body, options),
+  const target = resolveWhatsAppSendTarget(to, options.cfg);
+  const onDeliveryResult = options.onDeliveryResult;
+  return await sendToWhatsAppTarget(target, (resolvedTo) =>
+    withWhatsAppLogicalDeliveryActivity(() =>
+      sendMessageWhatsAppInActivityScope(resolvedTo, body, {
+        ...options,
+        ...(onDeliveryResult
+          ? {
+              onDeliveryResult: async (progress) => await onDeliveryResult(target.redact(progress)),
+            }
+          : {}),
+      }),
+    ),
   );
 }
 
@@ -326,10 +338,12 @@ export async function sendTypingWhatsApp(
     cfg,
     accountId: options.accountId,
   });
-  if (!isWhatsAppNewsletterJid(toWhatsappJid(to))) {
-    await active.assertSendReady?.(to);
-    await active.sendComposingTo(to);
-  }
+  await sendToWhatsAppTarget(resolveWhatsAppSendTarget(to, cfg), async (resolvedTo) => {
+    if (!isWhatsAppNewsletterJid(toWhatsappJid(resolvedTo))) {
+      await active.assertSendReady?.(resolvedTo);
+      await active.sendComposingTo(resolvedTo);
+    }
+  });
 }
 
 export async function sendReactionWhatsApp(
@@ -344,8 +358,20 @@ export async function sendReactionWhatsApp(
     cfg: OpenClawConfig;
   },
 ): Promise<void> {
-  const correlationId = generateSecureUuid();
   const cfg = requireRuntimeConfig(options.cfg, "WhatsApp reaction");
+  await sendToWhatsAppTarget(resolveWhatsAppSendTarget(chatJid, cfg), (resolvedJid) =>
+    sendResolvedReactionWhatsApp(resolvedJid, messageId, emoji, { ...options, cfg }),
+  );
+}
+
+async function sendResolvedReactionWhatsApp(
+  chatJid: string,
+  messageId: string,
+  emoji: string,
+  options: Parameters<typeof sendReactionWhatsApp>[3],
+): Promise<void> {
+  const correlationId = generateSecureUuid();
+  const cfg = options.cfg;
   const { listener: active } = requireOutboundActiveWebListener({
     cfg,
     accountId: options.accountId,
@@ -385,9 +411,20 @@ export async function sendPollWhatsApp(
   poll: PollInput,
   options: { verbose: boolean; accountId?: string; cfg: OpenClawConfig },
 ): Promise<{ messageId: string; toJid: string }> {
+  const cfg = requireRuntimeConfig(options.cfg, "WhatsApp poll");
+  return await sendToWhatsAppTarget(resolveWhatsAppSendTarget(to, cfg), (resolvedTo) =>
+    sendResolvedPollWhatsApp(resolvedTo, poll, { ...options, cfg }),
+  );
+}
+
+async function sendResolvedPollWhatsApp(
+  to: string,
+  poll: PollInput,
+  options: Parameters<typeof sendPollWhatsApp>[2],
+): Promise<{ messageId: string; toJid: string }> {
   const correlationId = generateSecureUuid();
   const startedAt = Date.now();
-  const cfg = requireRuntimeConfig(options.cfg, "WhatsApp poll");
+  const cfg = options.cfg;
   const { listener: active } = requireOutboundActiveWebListener({
     cfg,
     accountId: options.accountId,

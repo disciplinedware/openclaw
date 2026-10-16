@@ -1,6 +1,9 @@
 import { normalizeE164 } from "openclaw/plugin-sdk/account-resolution";
 import { formatNormalizedAllowFromEntries } from "openclaw/plugin-sdk/allow-from";
-import { uniqueStrings } from "openclaw/plugin-sdk/string-coerce-runtime";
+import {
+  normalizeLowercaseStringOrEmpty,
+  uniqueStrings,
+} from "openclaw/plugin-sdk/string-coerce-runtime";
 
 const WHATSAPP_USER_JID_RE = /^(\d+)(?::\d+)?@s\.whatsapp\.net$/i;
 const WHATSAPP_LEGACY_USER_JID_RE = /^(\d+)@c\.us$/i;
@@ -17,6 +20,18 @@ function stripWhatsAppTargetPrefixes(value: string): string {
       return candidate;
     }
   }
+}
+
+/**
+ * Messaging target that names the owner without the owner's number: core, hooks and the model
+ * see `owner`; only the final transport send resolves it (`owner-target.ts`).
+ */
+export const WHATSAPP_OWNER_TARGET = "owner";
+
+export function isWhatsAppOwnerTarget(raw: string): boolean {
+  return (
+    normalizeLowercaseStringOrEmpty(stripWhatsAppTargetPrefixes(raw)) === WHATSAPP_OWNER_TARGET
+  );
 }
 
 function normalizeWhatsAppGroupJid(candidate: string): string | null {
@@ -73,7 +88,11 @@ export function normalizeWhatsAppTarget(value: string): string | null {
   return normalized.length > 1 ? normalized : null;
 }
 
+/** A send target: a chat id, or `owner`, which stays opaque until the transport sends. */
 export function normalizeWhatsAppMessagingTarget(raw: string): string | undefined {
+  if (isWhatsAppOwnerTarget(raw)) {
+    return WHATSAPP_OWNER_TARGET;
+  }
   return normalizeWhatsAppTarget(raw) ?? undefined;
 }
 
@@ -99,5 +118,5 @@ export function normalizeWhatsAppAllowFromEntry(entry: string): string | null {
 
 export function looksLikeWhatsAppTargetId(raw: string): boolean {
   const trimmed = raw.trim();
-  return /^whatsapp:/i.test(trimmed) || normalizeWhatsAppTarget(trimmed) !== null;
+  return /^whatsapp:/i.test(trimmed) || normalizeWhatsAppMessagingTarget(trimmed) !== undefined;
 }
