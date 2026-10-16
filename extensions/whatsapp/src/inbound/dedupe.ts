@@ -15,7 +15,7 @@ const recentOutboundMessages = createDedupeCache({
   maxSize: RECENT_OUTBOUND_MESSAGE_MAX,
 });
 
-function buildMessageKey(params: {
+export function buildMessageKey(params: {
   accountId: string;
   remoteJid: string;
   messageId: string;

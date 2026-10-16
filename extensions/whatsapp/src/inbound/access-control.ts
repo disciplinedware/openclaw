@@ -59,6 +59,8 @@ export async function checkInboundAccessControl(params: {
   messageTimestampMs?: number;
   connectedAtMs?: number;
   pairingGraceMs?: number;
+  /** For admission checks that are not a received message: never issue a pairing challenge. */
+  suppressPairingChallenge?: boolean;
   verbose?: boolean;
   sock: {
     sendMessage: (jid: string, content: { text: string }) => Promise<unknown>;
@@ -134,7 +136,9 @@ export async function checkInboundAccessControl(params: {
     }
     if (senderAccess.decision === "pairing" && !policy.isSamePhone(params.from)) {
       const candidate = params.from;
-      if (suppressPairingReply) {
+      if (params.suppressPairingChallenge === true) {
+        logWhatsAppVerbose(params.verbose, `Skipping pairing challenge for ${candidate}.`);
+      } else if (suppressPairingReply) {
         logWhatsAppVerbose(
           params.verbose,
           `Skipping pairing reply for historical DM from ${candidate}.`,

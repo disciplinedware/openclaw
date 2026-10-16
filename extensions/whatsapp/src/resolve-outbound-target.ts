@@ -3,8 +3,12 @@ import { normalizeStringEntries } from "openclaw/plugin-sdk/string-coerce-runtim
 import {
   isWhatsAppGroupJid,
   isWhatsAppNewsletterJid,
+  isWhatsAppOwnerTarget,
   normalizeWhatsAppTarget,
+  WHATSAPP_OWNER_TARGET,
 } from "./normalize-target.js";
+
+export const WHATSAPP_TARGET_HINT = "<E.164|group JID|newsletter JID|owner>";
 
 type WhatsAppOutboundTargetResolution = { ok: true; to: string } | { ok: false; error: Error };
 
@@ -14,11 +18,15 @@ export function resolveWhatsAppOutboundTarget(params: {
   mode: string | null | undefined;
 }): WhatsAppOutboundTargetResolution {
   const trimmed = params.to?.trim() ?? "";
+  // The owner is a command owner, admitted by definition; the transport resolves the number.
+  if (isWhatsAppOwnerTarget(trimmed)) {
+    return { ok: true, to: WHATSAPP_OWNER_TARGET };
+  }
   const normalizedTo = normalizeWhatsAppTarget(trimmed);
   if (!normalizedTo) {
     return {
       ok: false,
-      error: missingTargetError("WhatsApp", "<E.164|group JID|newsletter JID>"),
+      error: missingTargetError("WhatsApp", WHATSAPP_TARGET_HINT),
     };
   }
   if (isWhatsAppGroupJid(normalizedTo) || isWhatsAppNewsletterJid(normalizedTo)) {

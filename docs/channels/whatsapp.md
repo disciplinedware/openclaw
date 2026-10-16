@@ -213,27 +213,45 @@ Limits: one-to-one outbound audio calls only, no arbitrary destination numbers, 
 
 ## Approval prompts
 
-WhatsApp can render exec and plugin approval prompts as `👍`/`👎` reactions, controlled by the top-level approval forwarding config:
+WhatsApp is a native approval client like Telegram. It renders exec, plugin, and system-agent approval prompts with `👍`/`👎` reactions:
 
 ```json5
 {
-  approvals: {
-    exec: {
-      enabled: true,
-      mode: "session",
-    },
-    plugin: {
-      enabled: true,
-      mode: "targets",
-      targets: [{ channel: "whatsapp", to: "+15551234567" }],
+  commands: { ownerAllowFrom: ["whatsapp:+15551234567"] },
+  channels: {
+    whatsapp: {
+      execApprovals: {
+        enabled: "auto", // default; true forces on, false turns off
+        approvers: ["+15551234567"], // optional; falls back to commands.ownerAllowFrom
+        target: "dm", // default; "channel" or "both" also post in the originating chat
+        notifyOrigin: true, // default; false keeps the originating chat silent
+      },
     },
   },
 }
 ```
 
-`approvals.exec` and `approvals.plugin` are independent; enabling WhatsApp as a channel only links the transport and sends nothing unless the matching approval family is enabled and routed there. Session mode delivers native emoji approvals only for approvals that originate from WhatsApp. Target mode uses the shared forwarding pipeline for explicit targets and does not create separate approver-DM fanout.
+- Approvers are E.164 numbers from `execApprovals.approvers`, or the WhatsApp entries of `commands.ownerAllowFrom` (`whatsapp:+<number>` or a bare number). `allowFrom`, `dmPolicy` and `defaultTo` admit senders and set default targets; they never make an approver.
+- Only a resolved approver resolves an approval, by reaction on the prompt or by `/approve`. With no resolved approver, nobody approves from WhatsApp and the Web UI stays available.
+- With `target: "dm"` the prompt goes to each approver's direct chat, and the chat the request came from gets a notice that the request went to WhatsApp DMs. Set `notifyOrigin: false` when that chat is a customer's: the approvers still get the prompt and the customer sees nothing. The prompt updates when the approval resolves or expires. If every delivery to the approvers fails, OpenClaw still sends that chat a delivery-failed notice with the `/approve` commands; only an approver can use them.
+- `agentFilter` and `sessionFilter` limit which requests WhatsApp handles. `approvals.exec` and `approvals.plugin` targets with `channel: "whatsapp"` still deliver through the shared forwarder, with the reaction bound to the accepted message.
 
-WhatsApp approval reactions require explicit approvers in `allowFrom` (or `"*"`). `defaultTo` sets ordinary default message targets, not an approver list. Manual `/approve` commands still pass the normal WhatsApp sender-authorization path before approval resolution.
+## Own messages
+
+When a business number also runs on the owner's phone, the owner sometimes types to a customer directly. By default OpenClaw drops a message the linked phone itself sends, so the agent never sees it. `ownMessages` keeps it:
+
+```json5
+{
+  commands: { ownerAllowFrom: ["whatsapp:+15551234567"] },
+  channels: { whatsapp: { ownMessages: "turn" } }, // "off" (default) | "history" | "turn"
+}
+```
+
+- `history`: a live message the linked phone sends to another person's direct chat is kept for 24 hours as history of that chat. The next dispatched turn of that chat carries it as a platform-selected history window (`historyKind: "recent"`), at most `historyLimit` entries, and consumes it. Each entry reads as a message the account sent: `[WhatsApp +15557654321 <time>] (self): <text>`.
+- `turn`: the same history, plus one agent run in the direct session of the first WhatsApp entry of `commands.ownerAllowFrom`. The run is a room event (`InboundEventKind: "room_event"`, as an unmentioned group message under `messages.groupChat.unmentionedInbound`): the owner said it to somebody else, so the agent observes it and replies only with the `message` tool, when a reply is useful. The owner passes normal DM admission; without a WhatsApp owner the history is kept and no turn runs.
+- The owner turn's body is the message as OpenClaw writes one the account itself sent: `[WhatsApp +15557654321 <time>] (self): <text>`. Hooks read `ctx.channelContext.chat.ownMessage` (`messageId`, `peerE164`, `timestampMs`); only that field, which the plugin alone sets, marks an owner turn.
+- The ids of OpenClaw's own sends of the last 24 hours (the newest 5,000) are kept in plugin state, so an echo that arrives after a restart is still recognized.
+- Nothing is sent to the other person. Echoes of OpenClaw's own sends, offline backfill and history sync, groups, status and broadcast chats, the account's own chat, reactions, edits, deletes and poll votes are never own messages.
 
 ## Question reactions
 

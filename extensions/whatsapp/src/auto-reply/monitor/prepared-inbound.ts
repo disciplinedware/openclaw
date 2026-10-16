@@ -45,6 +45,7 @@ export type PreparedChannelInbound = Pick<
   | "media"
   | "contextVisibility"
   | "channelIngress"
+  | "channelContext"
 > & {
   channelIngress?: ResolvedChannelMessageIngress;
   event: {

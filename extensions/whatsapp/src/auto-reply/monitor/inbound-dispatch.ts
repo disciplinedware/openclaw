@@ -13,7 +13,6 @@ import {
   resolveChannelStreamingBlockEnabled,
 } from "openclaw/plugin-sdk/channel-outbound";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
-import { buildInboundHistoryFromEntries } from "openclaw/plugin-sdk/reply-history";
 import type { FinalizedMsgContext, ReplyDispatchKind } from "openclaw/plugin-sdk/reply-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
@@ -36,7 +35,9 @@ import { createWhatsAppReplyTransportContext } from "../deliver-reply.js";
 import { markWhatsAppVisibleDeliveryError } from "../util.js";
 import { formatGroupMembers } from "./group-members.js";
 import type { GroupHistoryEntry } from "./inbound-context.js";
+import { resolveWhatsAppInboundHistoryWindow } from "./inbound-history.js";
 import type { updateLastRouteInBackground } from "./last-route.js";
+import { buildWhatsAppOwnMessageChannelContext } from "./own-message-context.js";
 import {
   projectPreparedChannelInbound,
   resolveWhatsAppInboundReplyPolicy,
@@ -376,6 +377,8 @@ export async function prepareWhatsAppInboundContext(params: {
   command?: NonNullable<PreparedChannelInbound["command"]>;
   groupHistory?: GroupHistoryEntry[];
   groupHistoryLimit?: number;
+  /** Platform-selected history of a direct chat: the business's own messages since its last turn. */
+  directHistory?: GroupHistoryEntry[];
   groupMemberRoster?: Map<string, string>;
   groupSystemPrompt?: string;
   msg: AdmittedWebInboundMessage;
@@ -398,27 +401,23 @@ export async function prepareWhatsAppInboundContext(params: {
   const conversationId = admission.conversation.id;
   const conversationKind = admission.conversation.kind;
   const eventId = params.msg.event.id ?? `${conversationId}:${newConnectionId()}`;
+  // An own message is something the owner said to somebody else: activity the
+  // agent observes and may act on, not a request to it.
+  const inboundEventKind = params.msg.ownMessage ? "room_event" : "user_request";
   const channelIngress =
     (await resolveWhatsAppAdmissionChannelIngress(admission, {
       agentId: params.route.agentId,
       sessionKey: params.route.sessionKey,
       messageId: eventId,
-      inboundEventKind: "user_request",
+      inboundEventKind,
     })) ?? admission.channelIngress;
   const wasMentioned = params.msg.groupMention?.wasMentioned ?? params.msg.wasMentioned;
-  const inboundHistory =
-    conversationKind === "group"
-      ? buildInboundHistoryFromEntries({
-          entries: (params.groupHistory ?? []).map((entry) => ({
-            sender: entry.sender,
-            body: entry.body,
-            timestamp: entry.timestamp,
-            messageId: entry.id,
-            media: entry.media,
-          })),
-          limit: params.groupHistory?.length ?? 1,
-        })
-      : undefined;
+  const { inboundHistory, sessionTranscript } = resolveWhatsAppInboundHistoryWindow({
+    conversationKind,
+    groupHistory: params.groupHistory,
+    groupHistoryLimit: params.groupHistoryLimit,
+    directHistory: params.directHistory,
+  });
 
   const media = await toInboundMediaFactsWithMetadata(
     params.msg.payload.media
@@ -478,18 +477,15 @@ export async function prepareWhatsAppInboundContext(params: {
       replyToId: params.visibleReplyTo?.id,
     },
     message: {
+      inboundEventKind,
       body: params.combinedBody,
       bodyForAgent: params.bodyForAgent ?? params.msg.payload.body,
       inboundHistory,
       rawBody: params.rawBody ?? params.msg.payload.body,
       commandBody: params.command?.body ?? params.msg.payload.body,
     },
-    sessionTranscript: {
-      historyLimit:
-        conversationKind === "group"
-          ? (params.groupHistoryLimit ?? params.groupHistory?.length ?? 0)
-          : 0,
-    },
+    sessionTranscript,
+    channelContext: buildWhatsAppOwnMessageChannelContext(params.msg),
     mentions:
       wasMentioned !== undefined
         ? {

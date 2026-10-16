@@ -44,6 +44,8 @@ export type ResolvedWhatsAppAccount = {
   groups?: WhatsAppAccountConfig["groups"];
   direct?: WhatsAppAccountConfig["direct"];
   replyToMode?: ReplyToMode;
+  execApprovals?: WhatsAppAccountConfig["execApprovals"];
+  ownMessages?: WhatsAppAccountConfig["ownMessages"];
 };
 
 export const DEFAULT_WHATSAPP_MEDIA_MAX_MB = 50;
@@ -133,6 +135,8 @@ export function resolveWhatsAppAccount(params: {
     groups: merged.groups,
     direct: merged.direct,
     replyToMode: merged.replyToMode,
+    execApprovals: merged.execApprovals,
+    ownMessages: merged.ownMessages,
   };
 }
 

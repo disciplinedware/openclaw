@@ -47,6 +47,7 @@ import {
   type WhatsAppSocketListen,
 } from "./lifecycle.js";
 import { DisconnectReason } from "./runtime-api.js";
+import { rememberWhatsAppSentMessage } from "./sent-message-store.js";
 import type { WebListenerCloseReason } from "./types.js";
 
 const LOGGED_OUT_STATUS = DisconnectReason.loggedOut;
@@ -68,7 +69,7 @@ type SocketSessionOptions = {
   logConnectionError: (error: unknown) => void;
 };
 
-function isDirectUserJid(jid: string): boolean {
+export function isDirectUserJid(jid: string): boolean {
   return /^(\d+)(?::\d+)?@(s\.whatsapp\.net|c\.us|lid|hosted|hosted\.lid)$/i.test(jid.trim());
 }
 
@@ -198,6 +199,7 @@ export async function createWhatsAppAttachedSocketSession(options: SocketSession
       remoteJid,
       messageId,
     });
+    rememberWhatsAppSentMessage({ accountId: options.accountId, remoteJid, messageId });
     const message = result?.message;
     rememberBaileysMessage(remoteJid, messageId, message);
     // Baileys derives the participant for fromMe quotes from its own userJid.

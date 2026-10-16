@@ -23,6 +23,7 @@ import type { WebInboundCallbackMessage, WebListenerCloseReason } from "./inboun
 import type { WhatsAppSendResult } from "./inbound/send-result.js";
 import { createAcceptedWhatsAppSendResult as createAcceptedWhatsAppSendResultForHarness } from "./inbound/send-result.test-helper.js";
 import { createTestWebInboundMessage } from "./inbound/test-message.test-helper.js";
+import { createMemoryPluginStateRuntime } from "./plugin-state.test-helper.js";
 import { setWhatsAppRuntime } from "./runtime.js";
 // Whatsapp plugin module implements auto reply harness behavior.
 
@@ -241,7 +242,11 @@ export function installWebAutoReplyUnitTestHooks(opts?: { pinDns?: boolean }) {
     _resetBaileysMocks();
     _resetLoadConfigMock();
     // Scoped test files must seed the plugin slot instead of inheriting another file's runtime.
-    setWhatsAppRuntime(createPluginRuntimeMock());
+    // Every direct turn reads its pending own-message history from plugin state.
+    const runtime = createPluginRuntimeMock();
+    runtime.state.openKeyedStore = createMemoryPluginStateRuntime().runtime.state
+      .openKeyedStore as typeof runtime.state.openKeyedStore;
+    setWhatsAppRuntime(runtime);
     if (opts?.pinDns) {
       resolvePinnedHostnameSpy = mockPinnedHostnameResolution([TEST_NET_IP]);
     }

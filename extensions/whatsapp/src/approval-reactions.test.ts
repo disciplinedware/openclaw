@@ -31,11 +31,11 @@ vi.mock("openclaw/plugin-sdk/error-runtime", async () => {
   };
 });
 
-function approvalConfig(allowFrom: string[]) {
+function approvalConfig(approvers: string[]) {
   return {
     channels: {
       whatsapp: {
-        allowFrom,
+        execApprovals: { approvers },
       },
     },
   };

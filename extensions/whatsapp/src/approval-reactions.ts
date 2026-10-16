@@ -23,8 +23,10 @@ import { createPluginStateErrorReporter } from "openclaw/plugin-sdk/plugin-state
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { normalizeUniqueTrimmedStringList } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveWhatsAppAccount } from "./accounts.js";
-import { getWhatsAppApprovalApprovers, whatsappApprovalAuth } from "./approval-auth.js";
+import { whatsappApprovalCapability } from "./approval-native.js";
+import { getWhatsAppExecApprovalApprovers } from "./exec-approvals.js";
 import { listWhatsAppDeliveredMessageIdentities } from "./inbound/send-result.js";
+import { WHATSAPP_FOR_BUSINESS_PLUGIN_ID } from "./plugin-id.js";
 import { getOptionalWhatsAppRuntime } from "./runtime.js";
 
 const PERSISTENT_NAMESPACE = "whatsapp.approval-reactions";
@@ -60,7 +62,7 @@ const loadResolveApprovalOverGateway = createLazyRuntimeSurface(
 
 const reportPersistentApprovalReactionError = createPluginStateErrorReporter(
   getOptionalWhatsAppRuntime,
-  "whatsapp",
+  WHATSAPP_FOR_BUSINESS_PLUGIN_ID,
   "approval-reaction-state",
   "WhatsApp persistent approval reaction state failed",
 );
@@ -97,7 +99,10 @@ function reportApprovalBindingCorrelationMismatch(binding: {
   // the marker lines would otherwise disable reactions with no operator signal.
   try {
     getOptionalWhatsAppRuntime()
-      ?.logging.getChildLogger({ plugin: "whatsapp", feature: "approval-reaction-state" })
+      ?.logging.getChildLogger({
+        plugin: WHATSAPP_FOR_BUSINESS_PLUGIN_ID,
+        feature: "approval-reaction-state",
+      })
       .warn("WhatsApp approval prompt text failed binding correlation; reactions disabled", {
         approvalId: binding.approvalId,
         approvalKind: binding.approvalKind,
@@ -256,6 +261,7 @@ export async function registerWhatsAppApprovalReactionTargetForDeliveredPayload(
   for (const { messageId, remoteJid } of listWhatsAppDeliveredMessageIdentities(
     params.results,
     (channel) => !channel || channel === "whatsapp",
+    params.cfg,
   )) {
     registrations.push(
       registerWhatsAppApprovalReactionTarget({
@@ -422,8 +428,9 @@ export async function maybeResolveWhatsAppApprovalReaction(params: {
       senderId: actorId,
       gatewayUrl: params.gatewayUrl,
     },
-    approvers: getWhatsAppApprovalApprovers({ cfg: params.cfg, accountId: params.accountId }),
-    authorizeActorAction: (input) => whatsappApprovalAuth.authorizeActorAction(input),
+    approvers: getWhatsAppExecApprovalApprovers({ cfg: params.cfg, accountId: params.accountId }),
+    authorizeActorAction: (input) =>
+      whatsappApprovalCapability.authorizeActorAction?.(input) ?? { authorized: false },
     loadResolver: loadResolveApprovalOverGateway,
     clearTarget: () =>
       unregisterWhatsAppApprovalReactionTarget({

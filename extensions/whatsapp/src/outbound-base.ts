@@ -5,6 +5,7 @@ import {
   createAttachedChannelResultAdapter,
   type ChannelOutboundAdapter,
 } from "openclaw/plugin-sdk/channel-send-result";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { sendTextMediaPayload } from "openclaw/plugin-sdk/reply-payload";
 import { resolveDefaultWhatsAppAccountId } from "./account-ids.js";
 import {
@@ -12,6 +13,7 @@ import {
   normalizeWhatsAppPayloadText,
 } from "./outbound-media-contract.js";
 import { WHATSAPP_LEGACY_OUTBOUND_SEND_DEP_KEYS } from "./outbound-send-deps.js";
+import { resolveWhatsAppSendTarget } from "./owner-target.js";
 import { lookupInboundMessageMetaForTarget } from "./quoted-message.js";
 import { toWhatsappJid } from "./targets-runtime.js";
 
@@ -50,6 +52,7 @@ export function createWhatsAppOutboundBase({
 }: CreateWhatsAppOutboundBaseParams): WhatsAppOutboundBaseCore &
   Pick<ChannelOutboundAdapter, "sendPayload"> {
   const resolveQuotedMessageKey = (params: {
+    cfg: OpenClawConfig;
     accountId: string;
     to: string;
     replyToId?: string | null;
@@ -58,7 +61,8 @@ export function createWhatsAppOutboundBase({
     if (!replyToId) {
       return undefined;
     }
-    const targetJid = toWhatsappJid(params.to);
+    // The quote names the owner's chat inside the plugin; the send still gets `owner`.
+    const targetJid = toWhatsappJid(resolveWhatsAppSendTarget(params.to, params.cfg).to);
     const cachedMeta = lookupInboundMessageMetaForTarget(params.accountId, targetJid, replyToId);
     return {
       id: replyToId,
@@ -87,6 +91,7 @@ export function createWhatsAppOutboundBase({
     const lookupAccountId =
       normalizeOptionalAccountId(params.accountId) ?? resolveDefaultWhatsAppAccountId(params.cfg);
     const quotedMessageKey = resolveQuotedMessageKey({
+      cfg: params.cfg,
       accountId: lookupAccountId,
       to: params.to,
       replyToId: params.replyToId,

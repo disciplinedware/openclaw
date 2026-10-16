@@ -10,6 +10,7 @@ import {
 } from "./normalize-target.js";
 
 export function resolveWhatsAppOutboundSessionRoute(params: ChannelOutboundSessionRouteParams) {
+  // `owner` gets no route: its session key would carry the owner's number back to core.
   const normalized = normalizeWhatsAppTarget(params.target);
   if (!normalized) {
     return null;

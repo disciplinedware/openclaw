@@ -16,6 +16,40 @@ export const whatsAppChannelConfigUiHints = {
   "accounts.*.allowFrom.*": { presentation: "phone-number" },
   "accounts.*.defaultTo": { presentation: "phone-number" },
   "accounts.*.groupAllowFrom.*": { presentation: "phone-number" },
+  execApprovals: {
+    label: "WhatsApp Exec Approvals",
+    help: "WhatsApp-native exec and plugin approval routing and approver authorization. When unset, OpenClaw auto-enables DM-first native approvals if approvers can be resolved for the selected account.",
+  },
+  "execApprovals.enabled": {
+    label: "WhatsApp Exec Approvals Enabled",
+    help: 'Controls WhatsApp native approvals for this account: unset or "auto" enables DM-first native approvals when approvers can be resolved, true forces native approvals on, and false disables them.',
+  },
+  "execApprovals.approvers": {
+    label: "WhatsApp Exec Approval Approvers",
+    help: "E.164 phone numbers allowed to approve requests for this WhatsApp account, by reaction or /approve. If you leave this unset, OpenClaw falls back to WhatsApp owner numbers from commands.ownerAllowFrom. allowFrom only admits senders; it never makes an approver.",
+  },
+  "execApprovals.approvers.*": { presentation: "phone-number" },
+  "accounts.*.execApprovals.approvers.*": { presentation: "phone-number" },
+  "execApprovals.notifyOrigin": {
+    label: "WhatsApp Exec Approval Origin Notice",
+    help: 'With target "dm", tell the chat a request came from that its approval went to approver DMs (default true). Set false when that chat is a customer\'s, so the customer sees no approval notice.',
+  },
+  "execApprovals.agentFilter": {
+    label: "WhatsApp Exec Approval Agent Filter",
+    help: 'Optional allowlist of agent IDs eligible for WhatsApp approvals, for example `["main", "ops-agent"]`. Use this to keep approval prompts scoped to the agents you actually operate from WhatsApp.',
+  },
+  "execApprovals.sessionFilter": {
+    label: "WhatsApp Exec Approval Session Filter",
+    help: "Optional session-key filters matched as substring or regex-style patterns before WhatsApp approval routing is used. Use narrow patterns so WhatsApp approvals only appear for intended sessions.",
+  },
+  "execApprovals.target": {
+    label: "WhatsApp Exec Approval Target",
+    help: 'Controls where WhatsApp approval prompts are sent: "dm" sends to approver DMs (default), "channel" sends to the originating WhatsApp chat, and "both" sends to both. Channel delivery shows the request to everyone in that chat, so only use it in trusted chats.',
+  },
+  ownMessages: {
+    label: "WhatsApp Own Messages",
+    help: 'Messages the linked phone sends itself to another person. "off" drops them (default); "history" keeps them as history for that chat; "turn" also runs the agent once, as a room event, in the direct session of the first WhatsApp owner in commands.ownerAllowFrom. Nothing is sent to the other person.',
+  },
   selfChatMode: {
     label: "WhatsApp Self-Phone Mode",
     help: "Same-phone setup (bot uses your personal WhatsApp number).",

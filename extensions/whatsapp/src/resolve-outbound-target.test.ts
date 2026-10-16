@@ -11,7 +11,7 @@ describe("resolveWhatsAppOutboundTarget", () => {
     expect(resolveWhatsAppOutboundTarget({ to, allowFrom: undefined, mode: undefined })).toEqual({
       ok: false,
       error: expect.objectContaining({
-        message: "Delivering to WhatsApp requires target <E.164|group JID|newsletter JID>",
+        message: "Delivering to WhatsApp requires target <E.164|group JID|newsletter JID|owner>",
       }),
     });
   });

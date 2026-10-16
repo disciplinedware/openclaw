@@ -22,6 +22,18 @@ function stripWhatsAppTargetPrefixes(value: string): string {
   }
 }
 
+/**
+ * Messaging target that names the owner without the owner's number: core, hooks and the model
+ * see `owner`; only the final transport send resolves it (`owner-target.ts`).
+ */
+export const WHATSAPP_OWNER_TARGET = "owner";
+
+export function isWhatsAppOwnerTarget(raw: string): boolean {
+  return (
+    normalizeLowercaseStringOrEmpty(stripWhatsAppTargetPrefixes(raw)) === WHATSAPP_OWNER_TARGET
+  );
+}
+
 function normalizeWhatsAppGroupJid(value: string): string | null {
   const candidate = stripWhatsAppTargetPrefixes(value)
     .replace(/^group:/i, "")
@@ -86,7 +98,11 @@ export function normalizeWhatsAppTarget(value: string): string | null {
   return normalized.length > 1 ? normalized : null;
 }
 
+/** A send target: a chat id, or `owner`, which stays opaque until the transport sends. */
 export function normalizeWhatsAppMessagingTarget(raw: string): string | undefined {
+  if (isWhatsAppOwnerTarget(raw)) {
+    return WHATSAPP_OWNER_TARGET;
+  }
   return normalizeWhatsAppTarget(raw) ?? undefined;
 }
 
@@ -112,5 +128,5 @@ export function normalizeWhatsAppAllowFromEntry(entry: string): string | null {
 
 export function looksLikeWhatsAppTargetId(raw: string): boolean {
   const trimmed = raw.trim();
-  return /^whatsapp:/i.test(trimmed) || normalizeWhatsAppTarget(trimmed) !== null;
+  return /^whatsapp:/i.test(trimmed) || normalizeWhatsAppMessagingTarget(trimmed) !== undefined;
 }

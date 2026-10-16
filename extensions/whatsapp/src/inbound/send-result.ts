@@ -13,8 +13,12 @@ import {
   type MessageReceiptSourceResult,
 } from "openclaw/plugin-sdk/channel-outbound";
 import type { OutboundDeliveryResult } from "openclaw/plugin-sdk/channel-send-result";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
 import { normalizeStringEntries, uniqueStrings } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { WHATSAPP_OWNER_TARGET } from "../normalize-target.js";
+import { findWhatsAppOwnerE164 } from "../owner-target.js";
+import { toWhatsappJid } from "../targets-runtime.js";
 
 export type WhatsAppSendKind =
   | "contact"
@@ -40,18 +44,31 @@ export type WhatsAppSendResult = {
   providerAccepted: boolean;
 };
 
+/**
+ * The WhatsApp messages a delivery produced. A send to `owner` reports `owner` as its chat; the
+ * owner's chat id is restored here, inside the plugin, so reactions on it still bind.
+ */
 export function listWhatsAppDeliveredMessageIdentities(
   results: readonly OutboundDeliveryResult[],
   acceptChannel: (channel: string | undefined) => boolean,
+  cfg: OpenClawConfig,
 ): Array<{ messageId: string; remoteJid: string }> {
   const identities: Array<{ messageId: string; remoteJid: string }> = [];
   const seen = new Set<string>();
+  const resolveRemoteJid = (toJid: string | undefined): string => {
+    const jid = toJid?.trim() ?? "";
+    if (jid !== WHATSAPP_OWNER_TARGET) {
+      return jid;
+    }
+    const ownerE164 = findWhatsAppOwnerE164(cfg);
+    return ownerE164 ? toWhatsappJid(ownerE164) : "";
+  };
   const add = (params: { channel?: string; messageId?: string; toJid?: string }) => {
     if (!acceptChannel(params.channel)) {
       return;
     }
     const messageId = params.messageId?.trim() ?? "";
-    const remoteJid = params.toJid?.trim() ?? "";
+    const remoteJid = resolveRemoteJid(params.toJid);
     const key = `${remoteJid}:${messageId}`;
     if (!messageId || messageId === "unknown" || !remoteJid || seen.has(key)) {
       return;
