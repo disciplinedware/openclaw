@@ -13,6 +13,8 @@ import { createPerRuntimeStoreOpener } from "./plugin-keyed-store.js";
 import { getWhatsAppRuntime } from "./runtime.js";
 
 const OWN_MESSAGE_HISTORY_NAMESPACE = "whatsapp.own-message-history";
+/** customType of the chat history the plugin records, read by the model as context. */
+export const WHATSAPP_HISTORY_CUSTOM_TYPE = "whatsapp.history";
 const LEGACY_OWN_MESSAGE_HISTORY_TTL_MS = 24 * 60 * 60 * 1000;
 
 type WhatsAppOwnMessageAuthor = "phone" | "assistant";
@@ -186,8 +188,13 @@ async function appendStoredMessage(
     config: cfg,
     eventId: idempotencyKey,
     idempotencyLookup: "scan",
+    // Application context, as core's AgentSession.sendCustomMessage records it: an assistant entry
+    // here would claim the agent's words, and transcript repair can move it between a tool result
+    // and a system update, which Anthropic refuses.
     message: {
-      role: "assistant",
+      role: "custom",
+      customType: WHATSAPP_HISTORY_CUSTOM_TYPE,
+      display: true,
       content: [{ type: "text", text: messageText(message, cfg) }],
       timestamp: message.timestampMs,
       idempotencyKey,
