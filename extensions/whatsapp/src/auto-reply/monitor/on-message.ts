@@ -201,6 +201,11 @@ export function createWebOnMessageHandler(params: {
       ) {
         return;
       }
+      // A person whose answer is overdue sees no sign of the turn: no acknowledgement reaction either.
+      if (msg.overdueAnswer) {
+        await transcribeAudioOnce();
+        return;
+      }
       if (cfg.messages?.statusReactions?.enabled === true) {
         statusReactionController = await createWhatsAppStatusReactionController({
           cfg,

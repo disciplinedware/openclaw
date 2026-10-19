@@ -13,6 +13,7 @@ import {
   findMessageSection,
 } from "./inbound/extract.js";
 import { resolveInboundMediaMimetype } from "./inbound/media-mimetype.js";
+import { createWhatsAppRecipientResolver } from "./inbound/recipient-resolver.js";
 import { createWebSendApi } from "./inbound/send-api.js";
 import type { ActiveWebSendOptions } from "./inbound/types.js";
 import { isWhatsAppGroupJid } from "./normalize-target.js";
@@ -20,6 +21,7 @@ import { createWaSocket, formatError, getStatusCode, waitForWaConnection } from 
 import {
   DEFAULT_WHATSAPP_SOCKET_TIMING,
   createWhatsAppSocketOperationTimeoutAdapter,
+  withWhatsAppSocketOperationTimeout,
 } from "./socket-timing.js";
 import { jidToE164 } from "./targets-runtime.js";
 
@@ -390,7 +392,15 @@ export async function startWhatsAppQaDriverSession(params: {
       DEFAULT_WHATSAPP_SOCKET_TIMING.defaultQueryTimeoutMs,
     ),
     defaultAccountId: "qa-driver",
-    authDir: params.authDir,
+    recipients: createWhatsAppRecipientResolver({
+      authDir: params.authDir,
+      lookup: (phoneJid) =>
+        withWhatsAppSocketOperationTimeout(
+          "onWhatsApp",
+          sock.onWhatsApp(phoneJid),
+          DEFAULT_WHATSAPP_SOCKET_TIMING.defaultQueryTimeoutMs,
+        ),
+    }),
   });
 
   return {

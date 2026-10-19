@@ -12,9 +12,14 @@ import {
   resolveWhatsAppResponsePrefix,
   updateWhatsAppMainLastRoute,
 } from "./inbound-dispatch.js";
+import { withWhatsAppOverdueAnswerContext } from "./overdue-answer-context.js";
 
+const runtimeConfig = vi.hoisted(() => ({ current: undefined as unknown }));
 const { readAgentRunTerminalOutcome } = vi.hoisted(() => ({
   readAgentRunTerminalOutcome: vi.fn(),
+}));
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+  getRuntimeConfig: () => runtimeConfig.current,
 }));
 vi.mock("openclaw/plugin-sdk/channel-inbound", async (importOriginal) => ({
   ...(await importOriginal<typeof import("openclaw/plugin-sdk/channel-inbound")>()),
@@ -128,11 +133,43 @@ const toolMedia = { text: "tool image", mediaUrls: ["/tmp/a.jpg", "/tmp/b.jpg"] 
 const replacement = { text: "captioned replacement", mediaUrls: ["/tmp/a.jpg"] };
 
 beforeEach(() => {
+  runtimeConfig.current = {};
   readAgentRunTerminalOutcome.mockReset();
   vi.mocked(loadWebMedia).mockReset();
 });
 
 describe("prepared WhatsApp inbound boundary", () => {
+  it("carries the original multiline message with existing own-message facts", async () => {
+    const receivedText = "Hola, ¿qué tal? 🌵\n💬\n  | línea original";
+    const ownMessage = {
+      messageId: "own-message-1",
+      peerE164: "+15550002222",
+      timestampMs: 1_710_000_000_000,
+    };
+    const prepared = await prepare({
+      msg: message({ payload: { body: receivedText }, ownMessage }),
+      combinedBody: "formatted body",
+    });
+
+    expect(prepared.inbound.message.body).toBe("formatted body");
+    expect(prepared.inbound.channelContext).toEqual({
+      chat: { receivedText, ownMessage },
+    });
+  });
+
+  it("carries the observed sender name and identity to the admitted turn", async () => {
+    const peer = "+15550003333";
+    const prepared = await prepare({
+      msg: message({
+        platform: { sender: { e164: peer, name: "Jordan" } },
+      }),
+      sender: { id: peer, e164: peer, name: "Jordan" },
+    });
+
+    expect(prepared.inbound.channelContext?.sender).toEqual({ id: peer, name: "Jordan" });
+    expect(nonPortablePaths(prepared.inbound.channelContext)).toEqual([]);
+  });
+
   it("projects portable group facts and self identity without transport callbacks", async () => {
     const msg = message({
       platform: { fromMe: true },
@@ -278,6 +315,91 @@ describe("prepared WhatsApp inbound boundary", () => {
         }),
       ],
     });
+  });
+  it("tells a turn of an overdue answer why only the owner can be written to", async () => {
+    runtimeConfig.current = {
+      plugins: { entries: { "whatsapp-for-business": { config: { blockOverdueAnswers: true } } } },
+    };
+    const { ctxPayload } = await prepare({
+      msg: withWhatsAppOverdueAnswerContext({
+        ...message(),
+        overdueAnswer: { earliestSentAtMs: Date.UTC(2026, 9, 16, 14, 0, 0) },
+      }),
+    });
+    expect(ctxPayload.ChannelStructuredContext).toEqual([
+      {
+        label: "WhatsApp overdue answer",
+        source: "whatsapp",
+        type: "overdue_answer",
+        payload: {
+          earliest_unanswered_message_sent_at: "2026-10-16T14:00:00.000Z",
+          can_write_to: "owner",
+          rule: expect.stringContaining("only the owner can be written to"),
+        },
+      },
+    ]);
+  });
+
+  it("reports the current disabled overdue policy and ignores a stale refusal marker", async () => {
+    runtimeConfig.current = {
+      plugins: { entries: { "whatsapp-for-business": { config: { blockOverdueAnswers: false } } } },
+    };
+    const existingContext = {
+      label: "WhatsApp contact",
+      source: "whatsapp",
+      type: "contact",
+      payload: { name: "Alex" },
+    };
+    const { inbound, ctxPayload } = await prepare({
+      combinedBody: "contact question",
+      msg: withWhatsAppOverdueAnswerContext(
+        message({
+          payload: { body: "contact question", channelStructuredContext: [existingContext] },
+          overdueAnswer: { earliestSentAtMs: Date.UTC(2026, 9, 16, 14, 0, 0) },
+        }),
+      ),
+    });
+
+    expect(inbound.message.body).toBe("contact question");
+    expect(ctxPayload.ChannelStructuredContext).toEqual([
+      existingContext,
+      {
+        label: "WhatsApp overdue-answer policy",
+        source: "whatsapp",
+        type: "overdue_answer_policy",
+        payload: {
+          rule: "The WhatsApp plugin's overdue refusal is disabled for this turn. An old overdue refusal does not establish current permission. Other policies and approval requirements still apply.",
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    ["enabled", { blockOverdueAnswers: true }],
+    ["default enabled", undefined],
+  ])("preserves current overdue context when blocking is %s", async (_label, config) => {
+    runtimeConfig.current = config
+      ? { plugins: { entries: { "whatsapp-for-business": { config } } } }
+      : {};
+    const { ctxPayload } = await prepare({
+      msg: withWhatsAppOverdueAnswerContext({
+        ...message(),
+        overdueAnswer: { earliestSentAtMs: Date.UTC(2026, 9, 16, 14, 0, 0) },
+      }),
+    });
+
+    expect(ctxPayload.ChannelStructuredContext).toEqual([
+      {
+        label: "WhatsApp overdue answer",
+        source: "whatsapp",
+        type: "overdue_answer",
+        payload: {
+          earliest_unanswered_message_sent_at: "2026-10-16T14:00:00.000Z",
+          can_write_to: "owner",
+          rule: expect.stringContaining("only the owner can be written to"),
+        },
+      },
+    ]);
   });
 });
 
@@ -471,6 +593,28 @@ describe("WhatsApp reply delivery", () => {
     expect(deliverReply).toHaveBeenCalledOnce();
   });
 
+  it("sends nothing from a turn that started while the answer was overdue, typing included", async () => {
+    const { plan, deliver, deliverReply } = await fixture({
+      overdueAnswer: { earliestSentAtMs: 1 },
+    });
+    await deliver({ text: "Sorry for the delay." }, "final");
+    await deliver({ text: "photo", mediaUrls: ["/tmp/a.jpg"] }, "final");
+    await deliver({ text: "partial" }, "block");
+    expect(deliverReply).not.toHaveBeenCalled();
+    expect(plan.dispatcherOptions.onReplyStart).toBeUndefined();
+  });
+  it("sends no reply that leaves after the answer became overdue", async () => {
+    const state: { overdue?: { earliestSentAtMs?: number } } = {};
+    const { plan, deliver, deliverReply } = await fixture({
+      readOverdueAnswer: async () => state.overdue,
+    });
+    await deliver({ text: "On my way." }, "final");
+    expect(deliverReply).toHaveBeenCalledOnce();
+    state.overdue = { earliestSentAtMs: 1 };
+    await deliver({ text: "Sorry for the delay." }, "final");
+    expect(deliverReply).toHaveBeenCalledOnce();
+    expect(plan.dispatcherOptions.onReplyStart).toBeDefined();
+  });
   it("suppresses reasoning and compaction payloads", async () => {
     const { deliver, deliverReply } = await fixture();
     await deliver({ text: "hidden", isReasoning: true }, "block");

@@ -20,6 +20,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, vi, type Mock } from "vites
 import { createRuntimeSpies } from "../../test-support/runtime-spies.js";
 import type { WebChannelStatus } from "./auto-reply/types.js";
 import type { WebInboundCallbackMessage, WebListenerCloseReason } from "./inbound.js";
+import type { WhatsAppRecipientResolver } from "./inbound/recipient-resolver.js";
+import { createTestWhatsAppRecipientResolver } from "./inbound/recipient-resolver.test-helper.js";
 import type { WhatsAppSendResult } from "./inbound/send-result.js";
 import { createAcceptedWhatsAppSendResult as createAcceptedWhatsAppSendResultForHarness } from "./inbound/send-result.test-helper.js";
 import { createTestWebInboundMessage } from "./inbound/test-message.test-helper.js";
@@ -36,11 +38,13 @@ type MockWebListener = {
   onClose: Promise<WebListenerCloseReason>;
   signalClose: () => void;
   assertSendReady: () => Promise<void>;
+  recipients: WhatsAppRecipientResolver;
   sendMessage: () => Promise<WhatsAppSendResult>;
   sendPoll: () => Promise<WhatsAppSendResult>;
   sendContact: () => Promise<WhatsAppSendResult>;
   sendLocation: () => Promise<WhatsAppSendResult>;
   sendSticker: () => Promise<WhatsAppSendResult>;
+  editMessage: (chatJid: string, messageId: string, text: string) => Promise<void>;
   sendReaction: () => Promise<WhatsAppSendResult>;
   sendComposingTo: () => Promise<void>;
 };
@@ -297,6 +301,7 @@ export function createMockWebListener(): MockWebListener {
     onClose: new Promise<WebListenerCloseReason>(() => {}),
     signalClose: vi.fn(),
     assertSendReady: vi.fn(async () => undefined),
+    recipients: createTestWhatsAppRecipientResolver(),
     sendMessage: vi.fn(async () => createAcceptedWhatsAppSendResultForHarness("text", "msg-1")),
     sendPoll: vi.fn(async () => createAcceptedWhatsAppSendResultForHarness("poll", "poll-1")),
     sendContact: vi.fn(async () =>
@@ -308,6 +313,7 @@ export function createMockWebListener(): MockWebListener {
     sendSticker: vi.fn(async () =>
       createAcceptedWhatsAppSendResultForHarness("sticker", "sticker-1"),
     ),
+    editMessage: vi.fn(async () => undefined),
     sendReaction: vi.fn(async () =>
       createAcceptedWhatsAppSendResultForHarness("reaction", "reaction-1"),
     ),

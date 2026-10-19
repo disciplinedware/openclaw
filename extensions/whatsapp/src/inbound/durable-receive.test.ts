@@ -18,7 +18,7 @@ import { createTestWebInboundMessage } from "./test-message.test-helper.js";
 type WhatsAppDurableInboundPayload = {
   message: ReturnType<typeof serializeWhatsAppDurableInboundMessage>;
   upsertType?: string;
-  skipStaleAppend?: boolean;
+  staleAppend?: boolean;
   skipRecentOutboundEcho?: boolean;
   receivedAt: number;
   receiveOrder?: number;
@@ -239,6 +239,7 @@ describe("createWhatsAppIngressMonitor", () => {
           await resolveWhatsAppIngressLifecycle(msg)?.onAdopted();
         },
         markRead,
+        readOverdueAnswer: async () => undefined,
         onPendingWorkChanged: () => {},
         onError,
       });
@@ -408,13 +409,13 @@ describe("WhatsApp durable message serialization", () => {
     expect(deserializeWhatsAppDurableInboundMessage(serialized).messageTimestamp).toBe(timestamp);
   });
 
-  it("carries receive-time skip decisions through admission and replay", async () => {
+  it("carries receive-time append facts and skip decisions through admission and replay", async () => {
     await withTempState(async (stateDir) => {
       const queue = createQueue(stateDir);
 
       const dispatched: Array<{
         upsertType?: string;
-        skipStaleAppend?: boolean;
+        staleAppend?: boolean;
         skipRecentOutboundEcho?: boolean;
         receiveOrder?: number;
       }> = [];
@@ -432,7 +433,7 @@ describe("WhatsApp durable message serialization", () => {
           {
             message: message("stale-append"),
             upsertType: "append",
-            skipStaleAppend: true,
+            staleAppend: true,
             skipRecentOutboundEcho: true,
             receivedAt: 1,
             receiveOrder: 7,
@@ -445,7 +446,7 @@ describe("WhatsApp durable message serialization", () => {
       expect(dispatched).toEqual([
         expect.objectContaining({
           upsertType: "append",
-          skipStaleAppend: true,
+          staleAppend: true,
           skipRecentOutboundEcho: true,
           receivedAt: 1,
           receiveOrder: 7,

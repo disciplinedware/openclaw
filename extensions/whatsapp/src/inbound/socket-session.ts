@@ -10,9 +10,12 @@ import type {
 } from "baileys";
 import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
+import { getChildLogger } from "openclaw/plugin-sdk/logging-core";
 import { readWebSelfIdentityForDecision, WhatsAppAuthUnstableError } from "../auth-store.js";
+import { normalizeWhatsAppDirectId } from "../command-owner.js";
 import { getWhatsAppConnectionController } from "../connection-controller-runtime-context.js";
 import { identitiesOverlap, type WhatsAppSelfIdentity } from "../identity.js";
+import { recordWhatsAppAnswer } from "../overdue-answers.js";
 import { cacheInboundMessageMeta } from "../quoted-message.js";
 import {
   DEFAULT_RECONNECT_POLICY,
@@ -29,24 +32,20 @@ import {
   type WhatsAppSocketOperationAdapter,
   type WhatsAppSocketTimingOptions,
 } from "../socket-timing.js";
-import {
-  resolveEquivalentWhatsAppDirectChatJids,
-  resolveJidToE164,
-  toWhatsappJid,
-  toWhatsappJidWithLid,
-} from "../targets-runtime.js";
+import { resolveEquivalentWhatsAppDirectChatJids, resolveJidToE164 } from "../targets-runtime.js";
 import {
   rememberWhatsAppBaileysCacheEntry,
   type WhatsAppBaileysMessageCache,
 } from "./baileys-cache.js";
 import { rememberRecentOutboundMessage } from "./dedupe.js";
 import type { WhatsAppReadReceiptTarget } from "./durable-receive.js";
-import { extractText } from "./extract.js";
+import { extractText, hasInboundUserContent } from "./extract.js";
 import {
   attachEmitterListener,
   closeInboundMonitorSocket,
   type WhatsAppSocketListen,
 } from "./lifecycle.js";
+import { createWhatsAppRecipientResolver } from "./recipient-resolver.js";
 import { DisconnectReason } from "./runtime-api.js";
 import { rememberWhatsAppSentMessage } from "./sent-message-store.js";
 import type { WebListenerCloseReason } from "./types.js";
@@ -173,6 +172,20 @@ export async function createWhatsAppAttachedSocketSession(options: SocketSession
     resolveJidToE164(jid, { authDir: options.authDir, lidLookup });
   const resolveReactionTargetJids = async (jid: string): Promise<string[]> =>
     resolveEquivalentWhatsAppDirectChatJids(jid, { authDir: options.authDir, lidLookup });
+  const recipients = createWhatsAppRecipientResolver({
+    authDir: options.authDir,
+    lookup: async (phoneJid) => {
+      const currentSock = getCurrentSock();
+      if (!currentSock) {
+        throw new Error(RECONNECT_IN_PROGRESS_ERROR);
+      }
+      return await withWhatsAppSocketOperationTimeout(
+        "onWhatsApp",
+        currentSock.onWhatsApp(phoneJid),
+        sendOperationTimeoutMs,
+      );
+    },
+  });
 
   const rememberBaileysMessage = (
     remoteJid: string | null | undefined,
@@ -211,12 +224,35 @@ export async function createWhatsAppAttachedSocketSession(options: SocketSession
     });
   };
 
+  // A message the account delivered to a person's chat answers that person (`overdue-answers.ts`).
+  // A reaction or a deletion carries no user content and answers nothing.
+  const recordDeliveredAnswer = async (remoteJid: string, result: WAMessage | undefined) => {
+    if (!result?.key?.id || !hasInboundUserContent(result.message ?? undefined)) {
+      return;
+    }
+    try {
+      const personE164 = normalizeWhatsAppDirectId(
+        (await resolveInboundJid(remoteJid)) ?? remoteJid,
+      );
+      if (personE164) {
+        await recordWhatsAppAnswer({ accountId: options.accountId, personE164 }, Date.now());
+      }
+    } catch (error) {
+      // The send already reached the person; failing it now would invite a duplicate retry.
+      getChildLogger({ module: "web-inbound" }).warn(
+        { error: formatError(error) },
+        "whatsapp: failed to record a delivered message as an answer",
+      );
+    }
+  };
+
   const trackLateAcceptedSend = (jid: string, promise: Promise<WAMessage | undefined>) => {
     // The local send has failed terminally, but Baileys may still deliver it.
-    // Track a late message id only to suppress the resulting self-echo.
+    // Track a late message id to suppress the resulting self-echo and record the answer.
     void promise.then(
-      (result) => {
+      async (result) => {
         rememberOutboundMessage(jid, result);
+        await recordDeliveredAnswer(jid, result);
       },
       () => {},
     );
@@ -305,9 +341,7 @@ export async function createWhatsAppAttachedSocketSession(options: SocketSession
     if (!currentSock) {
       throw new Error(RECONNECT_IN_PROGRESS_ERROR);
     }
-    const jid = options.authDir
-      ? toWhatsappJidWithLid(to, { authDir: options.authDir })
-      : toWhatsappJid(to);
+    const jid = await recipients.resolveSendJid(to);
     await assertCanSendToJid(jid, currentSock, { rememberReady: true });
   };
 
@@ -334,6 +368,7 @@ export async function createWhatsAppAttachedSocketSession(options: SocketSession
             trackedOptions,
           );
           rememberOutboundMessage(jid, result);
+          await recordDeliveredAnswer(jid, result);
           return result;
         } catch (error) {
           if (!shouldRetryDisconnect() || !isRetryableSendDisconnectError(error)) {
@@ -441,6 +476,7 @@ export async function createWhatsAppAttachedSocketSession(options: SocketSession
     getCurrentSock,
     resolveInboundJid,
     resolveReactionTargetJids,
+    recipients,
     rememberBaileysMessage,
     assertCanSendToJid,
     assertSendReady,

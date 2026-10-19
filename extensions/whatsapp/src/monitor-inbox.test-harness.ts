@@ -41,6 +41,7 @@ type MockSock = {
   ws: { close: AnyMockFn };
   sendPresenceUpdate: AnyMockFn;
   sendMessage: AnyMockFn;
+  onWhatsApp: AnyMockFn;
   fetchAccountReachoutTimelock: AnyMockFn;
   readMessages: AnyMockFn;
   groupMetadata: AnyMockFn;
@@ -193,6 +194,8 @@ function createMockSock(): MockSock {
     ws: { close: vi.fn() },
     sendPresenceUpdate: createResolvedMock(),
     sendMessage: createAcceptedSendMessageMock(),
+    // Every number is registered under its own digits unless a test says otherwise.
+    onWhatsApp: vi.fn().mockImplementation(async (jid: string) => [{ jid, exists: true }]),
     fetchAccountReachoutTimelock: vi.fn().mockResolvedValue({ isActive: false }),
     readMessages: createResolvedMock(),
     groupMetadata: vi.fn().mockImplementation(async (jid: string) => ({

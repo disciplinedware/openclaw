@@ -31,6 +31,9 @@ import {
   type InboxOnMessage,
 } from "./monitor-inbox.test-harness.js";
 
+/** A WhatsApp send time in seconds, recent enough that its turn is not late. */
+const recentSeconds = (offset: number) => Math.floor(Date.now() / 1000) - 60 + offset;
+
 const approvalResolver = vi.hoisted(() => vi.fn());
 vi.mock("openclaw/plugin-sdk/approval-gateway-runtime", () => ({
   resolveApprovalOverGateway: approvalResolver,
@@ -77,7 +80,7 @@ async function waitForPersistedRetry(
   });
 }
 
-function dmUpsert(id: string, text = "ping", timestamp = 1_700_000_000) {
+function dmUpsert(id: string, text = "ping", timestamp = recentSeconds(0)) {
   return buildNotifyMessageUpsert({
     id,
     remoteJid: "999@s.whatsapp.net",
@@ -145,13 +148,13 @@ describe("web monitor inbox delivery and dedupe", () => {
                   key: { id: "approval-message", remoteJid: "15551230000@s.whatsapp.net" },
                 },
               },
-              messageTimestamp: 1_700_000_000,
+              messageTimestamp: recentSeconds(0),
             },
             ...buildNotifyMessageUpsert({
               id: "batch-survivor",
               remoteJid: "999@s.whatsapp.net",
               text: "batch survivor",
-              timestamp: 1_700_000_001,
+              timestamp: recentSeconds(1),
             }).messages,
           ],
         });
@@ -430,7 +433,7 @@ describe("web monitor inbox delivery and dedupe", () => {
 
     sock.ev.emit(
       "messages.upsert",
-      dmUpsert(nextMessageId("debounce-steer-2"), "steer", 1_700_000_001),
+      dmUpsert(nextMessageId("debounce-steer-2"), "steer", recentSeconds(1)),
     );
     await waitForMessageCalls(onMessage, 2);
     expect(inboundMessage(onMessage, 1).payload.body).toBe("steer");
@@ -446,8 +449,8 @@ describe("web monitor inbox delivery and dedupe", () => {
       const secondId = nextMessageId("debounce-close-2");
       const thirdId = nextMessageId("debounce-close-3");
       const first = dmUpsert(firstId, "first");
-      const second = dmUpsert(secondId, "second", 1_700_000_001);
-      const third = dmUpsert(thirdId, "third", 1_700_000_002);
+      const second = dmUpsert(secondId, "second", recentSeconds(1));
+      const third = dmUpsert(thirdId, "third", recentSeconds(2));
       const thirdDurableId = createWhatsAppDurableInboundMessageId({
         remoteJid: "999@s.whatsapp.net",
         id: thirdId,
@@ -582,7 +585,7 @@ describe("web monitor inbox delivery and dedupe", () => {
 
     sock.ev.emit(
       "messages.upsert",
-      dmUpsert(nextMessageId("debounce-reused-key-2"), "second", 1_700_000_001),
+      dmUpsert(nextMessageId("debounce-reused-key-2"), "second", recentSeconds(1)),
     );
     await settleInboundWork();
     expect(onMessage).toHaveBeenCalledTimes(1);
@@ -607,7 +610,7 @@ describe("web monitor inbox delivery and dedupe", () => {
     });
     sock.ev.emit(
       "messages.upsert",
-      dmUpsert(nextMessageId("debounce-shutdown-durable"), "held in debounce", 1_700_000_100),
+      dmUpsert(nextMessageId("debounce-shutdown-durable"), "held in debounce", recentSeconds(100)),
     );
     // Let accept+pump reach the flush waiter without exhausting the debounce window.
     await settleInboundWork();
@@ -652,7 +655,7 @@ describe("web monitor inbox delivery and dedupe", () => {
 
       sock.ev.emit(
         "messages.upsert",
-        dmUpsert(nextMessageId("debounce-close-reply-2"), "second", 1_700_000_001),
+        dmUpsert(nextMessageId("debounce-close-reply-2"), "second", recentSeconds(1)),
       );
 
       const closePromise = listener.close();
@@ -754,7 +757,7 @@ describe("web monitor inbox delivery and dedupe", () => {
           id,
           remoteJid: "999@s.whatsapp.net",
           text: "Done.",
-          timestamp: 1_700_000_000 + index,
+          timestamp: recentSeconds(0) + index,
           pushName: "Tester",
         }),
       );
@@ -796,7 +799,7 @@ describe("web monitor inbox delivery and dedupe", () => {
             id: nextMessageId(id),
             remoteJid: "999@s.whatsapp.net",
             text: "ping",
-            timestamp: 1_700_000_000,
+            timestamp: recentSeconds(0),
             pushName: "Tester",
           }),
         );
@@ -841,7 +844,7 @@ describe("web monitor inbox delivery and dedupe", () => {
         {
           key: { id: "abc1", fromMe: false, remoteJid: "999@s.whatsapp.net" },
           message: { conversation: "ping" },
-          messageTimestamp: 1_700_000_000,
+          messageTimestamp: recentSeconds(0),
         },
       ],
     });
@@ -854,7 +857,7 @@ describe("web monitor inbox delivery and dedupe", () => {
         {
           key: { id: "abc2", fromMe: false, remoteJid: "999@s.whatsapp.net" },
           message: { conversation: "pong" },
-          messageTimestamp: 1_700_000_001,
+          messageTimestamp: recentSeconds(1),
         },
       ],
     });

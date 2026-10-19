@@ -1080,7 +1080,7 @@ const config = {
     ]),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/voyage`]: bundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/whatsapp`]: {
-      ...bundledPluginWorkspace(),
+      ...bundledPluginWorkspace(["scripts/write-channel-config-schema.mts!"]),
       // Baileys loads its optional audio decoder at runtime for supported media.
       ignoreDependencies: [...bundledPluginIgnoredRuntimeDependencies, "audio-decode"],
     },
