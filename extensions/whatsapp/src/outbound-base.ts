@@ -8,6 +8,7 @@ import {
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { sendTextMediaPayload } from "openclaw/plugin-sdk/reply-payload";
 import { resolveDefaultWhatsAppAccountId } from "./account-ids.js";
+import { getActiveWebListener } from "./active-listener.js";
 import {
   normalizeWhatsAppOutboundPayload,
   normalizeWhatsAppPayloadTextPreservingIndentation as normalizeText,
@@ -18,13 +19,12 @@ import { lookupInboundMessageMetaForTarget } from "./quoted-message.js";
 import { resolveWhatsAppOutboundTarget } from "./resolve-outbound-target.js";
 import { getWhatsAppRuntime } from "./runtime.js";
 import { sendMessageWhatsApp, sendPollWhatsApp } from "./send.js";
-import { toWhatsappJid } from "./targets-runtime.js";
 
 type WhatsAppSendMessage = typeof import("./send.js").sendMessageWhatsApp;
 type WhatsAppSendOptions = Parameters<WhatsAppSendMessage>[2];
 type WhatsAppDispatchParams = Parameters<NonNullable<ChannelOutboundAdapter["sendText"]>>[0];
 
-const resolveQuotedMessageKey = (params: {
+const resolveQuotedMessageKey = async (params: {
   cfg: OpenClawConfig;
   accountId: string;
   to: string;
@@ -34,8 +34,15 @@ const resolveQuotedMessageKey = (params: {
   if (!replyToId) {
     return undefined;
   }
+  // Without a listener the send fails on its own; the quote names the chat WhatsApp registered.
+  const recipients = getActiveWebListener(params.accountId)?.recipients;
+  if (!recipients) {
+    return undefined;
+  }
   // The quote names the owner's chat inside the plugin; the send still gets `owner`.
-  const targetJid = toWhatsappJid(resolveWhatsAppSendTarget(params.to, params.cfg).to);
+  const targetJid = await recipients.resolvePhoneJid(
+    resolveWhatsAppSendTarget(params.to, params.cfg).to,
+  );
   const cachedMeta = lookupInboundMessageMetaForTarget(params.accountId, targetJid, replyToId);
   return {
     id: replyToId,
@@ -63,7 +70,7 @@ const dispatchMessage = async (
 ) => {
   const lookupAccountId =
     normalizeOptionalAccountId(params.accountId) ?? resolveDefaultWhatsAppAccountId(params.cfg);
-  const quotedMessageKey = resolveQuotedMessageKey({
+  const quotedMessageKey = await resolveQuotedMessageKey({
     cfg: params.cfg,
     accountId: lookupAccountId,
     to: params.to,

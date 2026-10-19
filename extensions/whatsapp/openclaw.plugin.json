@@ -12,7 +12,7 @@
     ]
   },
   "name": "WhatsApp for Business",
-  "description": "OpenClaw WhatsApp channel plugin with own messages and owner-only native approvals.",
+  "description": "OpenClaw WhatsApp channel plugin with own messages, owner-only native approvals, inbound recovery of missed messages and overdue answers.",
   "skills": [
     "./skills"
   ],
@@ -36,6 +36,23 @@
       "properties": [
         "pluginHooks"
       ]
+    },
+    {
+      "id": "message-handling",
+      "title": "Message handling",
+      "order": 20,
+      "properties": [
+        "blockOverdueAnswers"
+      ]
+    },
+    {
+      "id": "approval-messages",
+      "title": "Approval messages",
+      "order": 30,
+      "properties": [
+        "approvalLanguage",
+        "unhandledApprovalPolicy"
+      ]
     }
   ],
   "configSchema": {
@@ -51,6 +68,29 @@
             "description": "Opt in to broadcasting inbound WhatsApp message_received hook payloads to loaded plugins."
           }
         }
+      },
+      "blockOverdueAnswers": {
+        "type": "boolean",
+        "default": true,
+        "description": "When false, configure another approval policy to require approval before every outbound message."
+      },
+      "approvalLanguage": {
+        "type": "string",
+        "enum": [
+          "en",
+          "es"
+        ],
+        "default": "en",
+        "description": "Language for native WhatsApp Guardian approval instructions and outcomes."
+      },
+      "unhandledApprovalPolicy": {
+        "type": "string",
+        "enum": [
+          "block",
+          "send"
+        ],
+        "default": "block",
+        "description": "When a send requests approval but no approval policy clears the request, block by default. Set to send only when unreviewed requested sends may proceed."
       }
     }
   },

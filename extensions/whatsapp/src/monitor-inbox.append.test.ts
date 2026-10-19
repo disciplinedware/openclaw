@@ -109,7 +109,7 @@ describe("append upsert handling (#20952)", () => {
     await listener.close();
   });
 
-  it("delivery coordinator limits reconnect catch-up appends by dedupe age", async () => {
+  it("delivery coordinator limits group reconnect catch-up appends by dedupe age", async () => {
     const onMessage = vi.fn(async () => {});
     const { listener, sock } = await startInboxMonitor(onMessage, {
       appendReplyWindow: {
@@ -123,7 +123,7 @@ describe("append upsert handling (#20952)", () => {
       type: "append",
       messages: [
         {
-          key: { id: "catch-up-1", fromMe: false, remoteJid: "999@s.whatsapp.net" },
+          key: { id: "catch-up-1", fromMe: false, remoteJid: "120363@g.us" },
           message: { conversation: "missed while reconnecting" },
           messageTimestamp: Math.floor(Date.now() / 1000) - 15 * 60,
           pushName: "Reconnect Tester",
@@ -136,7 +136,7 @@ describe("append upsert handling (#20952)", () => {
       type: "append",
       messages: [
         {
-          key: { id: "catch-up-old", fromMe: false, remoteJid: "999@s.whatsapp.net" },
+          key: { id: "catch-up-old", fromMe: false, remoteJid: "120363@g.us" },
           message: { conversation: "before the recovery window" },
           messageTimestamp: Math.floor(Date.now() / 1000) - 25 * 60,
           pushName: "Reconnect Tester",
@@ -150,7 +150,7 @@ describe("append upsert handling (#20952)", () => {
     await listener.close();
   });
 
-  it("delivery coordinator preserves fresh appends after catch-up expires", async () => {
+  it("delivery coordinator preserves fresh group appends after catch-up expires", async () => {
     const onMessage = vi.fn(async () => {});
     const { listener, sock } = await startInboxMonitor(onMessage, {
       appendReplyWindow: {
@@ -164,7 +164,7 @@ describe("append upsert handling (#20952)", () => {
       type: "append",
       messages: [
         {
-          key: { id: "catch-up-late", fromMe: false, remoteJid: "999@s.whatsapp.net" },
+          key: { id: "catch-up-late", fromMe: false, remoteJid: "120363@g.us" },
           message: { conversation: "arrived after recovery" },
           messageTimestamp: Math.floor(Date.now() / 1000) - 5 * 60,
           pushName: "Reconnect Tester",
@@ -179,7 +179,7 @@ describe("append upsert handling (#20952)", () => {
       type: "append",
       messages: [
         {
-          key: { id: "fresh-after-catch-up", fromMe: false, remoteJid: "999@s.whatsapp.net" },
+          key: { id: "fresh-after-catch-up", fromMe: false, remoteJid: "120363@g.us" },
           message: { conversation: "fresh after recovery" },
           messageTimestamp: Math.floor(Date.now() / 1000),
           pushName: "Reconnect Tester",

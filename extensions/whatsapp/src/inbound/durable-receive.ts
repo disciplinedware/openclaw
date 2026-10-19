@@ -25,7 +25,8 @@ export type WhatsAppReadReceiptTarget = {
 type WhatsAppDurableInboundPayload = {
   message: SerializedWhatsAppDurableInboundMessage;
   upsertType?: string;
-  skipStaleAppend?: boolean;
+  /** An append older than the connection's recent-append fence; only group messages skip on it. */
+  staleAppend?: boolean;
   skipRecentOutboundEcho?: boolean;
   receivedAt: number;
   receiveOrder?: number;

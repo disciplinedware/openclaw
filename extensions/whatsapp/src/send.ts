@@ -134,13 +134,14 @@ async function sendMessageWhatsAppInActivityScope(
   options: Parameters<typeof sendMessageWhatsApp>[2] & { fileName?: string; contentType?: string },
 ): Promise<{ messageId: string; toJid: string }> {
   let text = options.preserveLeadingWhitespace ? body : normalizeWhatsAppPayloadText(body);
-  const jid = toWhatsappJid(to);
+  // Names the chat of a send that sends nothing; a real send reports the chat it reached.
+  const requestedJid = toWhatsappJid(to);
   const mediaUrls = resolveAdditiveWhatsAppMediaUrls(options);
   const mediaPayload = options.mediaPayload;
   const primaryMediaUrl = mediaUrls[0] ?? mediaPayload?.fileName;
   const hasMedia = Boolean(mediaPayload || primaryMediaUrl);
   if (!text && !hasMedia) {
-    return { messageId: "", toJid: jid };
+    return { messageId: "", toJid: requestedJid };
   }
   const correlationId = generateSecureUuid();
   const startedAt = Date.now();
@@ -172,7 +173,7 @@ async function sendMessageWhatsAppInActivityScope(
   );
   text = textChunks.shift() ?? text;
   if (!text && !hasMedia) {
-    return { messageId: "", toJid: jid };
+    return { messageId: "", toJid: requestedJid };
   }
   const redactedTo = redactIdentifier(to);
   const logger = getChildLogger({
@@ -182,6 +183,7 @@ async function sendMessageWhatsAppInActivityScope(
   });
   const acceptedResults: WhatsAppSendResult[] = [];
   try {
+    const jid = await active.recipients.resolveSendJid(to);
     const redactedJid = redactIdentifier(jid);
     let mediaBuffer: Buffer | undefined;
     let mediaType: string | undefined;
@@ -339,10 +341,24 @@ export async function sendTypingWhatsApp(
     accountId: options.accountId,
   });
   await sendToWhatsAppTarget(resolveWhatsAppSendTarget(to, cfg), async (resolvedTo) => {
-    if (!isWhatsAppNewsletterJid(toWhatsappJid(resolvedTo))) {
+    if (!isWhatsAppNewsletterJid(resolvedTo)) {
       await active.assertSendReady?.(resolvedTo);
       await active.sendComposingTo(resolvedTo);
     }
+  });
+}
+
+export async function editMessageWhatsApp(
+  chatJid: string,
+  messageId: string,
+  text: string,
+  options: { cfg: OpenClawConfig; accountId?: string },
+): Promise<void> {
+  const cfg = requireRuntimeConfig(options.cfg, "WhatsApp message editing");
+  const { listener } = requireOutboundActiveWebListener({ cfg, accountId: options.accountId });
+  await sendToWhatsAppTarget(resolveWhatsAppSendTarget(chatJid, cfg), async (resolvedTo) => {
+    await listener.assertSendReady?.(resolvedTo);
+    await listener.editMessage(resolvedTo, messageId, text);
   });
 }
 
@@ -384,7 +400,7 @@ async function sendResolvedReactionWhatsApp(
     messageId,
   });
   try {
-    const jid = toWhatsappJid(chatJid);
+    const jid = await active.recipients.resolveSendJid(chatJid);
     const redactedJid = redactIdentifier(jid);
     outboundLog.info(`Sending reaction "${emoji}" -> message ${messageId}`);
     logger.info({ chatJid: redactedJid, messageId, emoji }, "sending reaction");
@@ -436,7 +452,7 @@ async function sendResolvedPollWhatsApp(
     to: redactedTo,
   });
   try {
-    const jid = toWhatsappJid(to);
+    const jid = await active.recipients.resolveSendJid(to);
     const redactedJid = redactIdentifier(jid);
     const normalized = normalizePollInput(poll, { maxOptions: 12 });
     outboundLog.info(`Sending poll -> ${redactedJid}`);

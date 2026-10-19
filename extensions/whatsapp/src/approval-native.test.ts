@@ -3,7 +3,7 @@ import { whatsappApprovalCapability } from "./approval-native.js";
 
 const BUSINESS = "+15550000100";
 const OWNER = "+15550000200";
-const GUEST = "+15550000300";
+const CONTACT = "+15550000300";
 
 function buildConfig(
   whatsapp: Record<string, unknown>,
@@ -15,12 +15,12 @@ function buildConfig(
   } as never;
 }
 
-function guestTurnSource() {
+function contactTurnSource() {
   return {
     agentId: "main",
-    sessionKey: `agent:main:whatsapp:direct:${GUEST}`,
+    sessionKey: `agent:main:whatsapp:direct:${CONTACT}`,
     turnSourceChannel: "whatsapp",
-    turnSourceTo: GUEST,
+    turnSourceTo: CONTACT,
     turnSourceAccountId: "default",
   };
 }
@@ -31,9 +31,9 @@ function pluginRequest() {
     request: {
       pluginId: "acs",
       title: "Send a payment link",
-      description: "The guest asks for a payment link.",
+      description: "The contact asks for a payment link.",
       allowedDecisions: ["allow-once", "deny"],
-      ...guestTurnSource(),
+      ...contactTurnSource(),
     },
     createdAtMs: 0,
     expiresAtMs: 60_000,
@@ -48,7 +48,7 @@ function execRequest() {
       cwd: "/tmp/work",
       host: "gateway",
       ask: "always",
-      ...guestTurnSource(),
+      ...contactTurnSource(),
     },
     createdAtMs: 0,
     expiresAtMs: 60_000,
@@ -69,7 +69,7 @@ function deliveryPlan(cfg: never, approvalKind: "exec" | "plugin" = "plugin") {
 
 describe("whatsapp native approval delivery", () => {
   it.each(["exec", "plugin"] as const)(
-    "sends a %s approval from a guest chat to the approver's DM only",
+    "sends a %s approval from a contact chat to the approver's DM only",
     async (approvalKind) => {
       const plan = deliveryPlan(
         buildConfig({ execApprovals: { approvers: [OWNER] } }),
@@ -141,7 +141,7 @@ describe("whatsapp native approval delivery", () => {
   });
 
   it("never takes an approver from allowFrom", async () => {
-    const cfg = buildConfig({ allowFrom: [OWNER, GUEST] });
+    const cfg = buildConfig({ allowFrom: [OWNER, CONTACT] });
     const plan = deliveryPlan(cfg);
 
     expect(plan.capabilities.enabled).toBe(false);
@@ -164,7 +164,7 @@ describe("whatsapp native approval delivery", () => {
     );
 
     expect(plan.capabilities.preferredSurface).toBe("origin");
-    expect(await plan.origin).toMatchObject({ to: GUEST });
+    expect(await plan.origin).toMatchObject({ to: CONTACT });
   });
 
   it("applies the agent filter", async () => {
@@ -180,7 +180,7 @@ describe("whatsapp native approval delivery", () => {
       whatsappApprovalCapability.delivery?.shouldSuppressForwardingFallback?.({
         cfg,
         approvalKind: "plugin",
-        target: { channel: "whatsapp", to: GUEST, source: "session" },
+        target: { channel: "whatsapp", to: CONTACT, source: "session" },
         request: pluginRequest(),
       } as never);
 
@@ -194,7 +194,7 @@ describe("whatsapp approval authorization", () => {
     { name: "owner_is_authorized", senderId: OWNER, authorized: true },
     { name: "owner_jid_is_authorized", senderId: "15550000200@s.whatsapp.net", authorized: true },
     { name: "business_number_is_refused", senderId: BUSINESS, authorized: false },
-    { name: "guest_is_refused", senderId: GUEST, authorized: false },
+    { name: "contact_is_refused", senderId: CONTACT, authorized: false },
   ])("$name", ({ senderId, authorized }) => {
     for (const cfg of [
       buildConfig({ execApprovals: { approvers: [OWNER] } }),
@@ -219,7 +219,7 @@ describe("whatsapp approval authorization", () => {
       whatsappApprovalCapability.authorizeActorAction?.({
         cfg: buildConfig({}),
         accountId: "default",
-        senderId: GUEST,
+        senderId: CONTACT,
         action: "approve",
         approvalKind: "plugin",
       }),
@@ -234,7 +234,7 @@ describe("whatsapp approval authorization", () => {
       { execApprovals: { approvers: [OWNER] } },
       {
         approvals: {
-          exec: { enabled: true, mode: "targets", targets: [{ channel: "whatsapp", to: GUEST }] },
+          exec: { enabled: true, mode: "targets", targets: [{ channel: "whatsapp", to: CONTACT }] },
         },
       },
     );
@@ -242,7 +242,7 @@ describe("whatsapp approval authorization", () => {
       whatsappApprovalCapability.authorizeActorAction?.({
         cfg,
         accountId: "default",
-        senderId: GUEST,
+        senderId: CONTACT,
         action: "approve",
         approvalKind,
       }).authorized;
@@ -256,7 +256,7 @@ describe("whatsapp approval authorization", () => {
       whatsappApprovalCapability.resolveApproveCommandBehavior?.({
         cfg: buildConfig({}),
         accountId: "default",
-        senderId: GUEST,
+        senderId: CONTACT,
         approvalKind: "exec",
       } as never),
     ).toEqual({

@@ -14,6 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prepareWhatsAppOutboundMedia } from "../outbound-media-contract.js";
 import { markdownToWhatsApp } from "../targets-runtime.js";
 import { resolveWhatsAppOutboundMentions } from "./outbound-mentions.js";
+import { createWhatsAppRecipientResolver } from "./recipient-resolver.js";
+import { createTestWhatsAppRecipientResolver } from "./recipient-resolver.test-helper.js";
 import { createWebSendApi } from "./send-api.js";
 import { normalizeWhatsAppSendResult, type WhatsAppSendResult } from "./send-result.js";
 
@@ -76,6 +78,7 @@ describe("createWebSendApi", () => {
     imageOps.getImageMetadata.mockResolvedValue(null);
     imageOps.resizeToJpeg.mockRejectedValue(new Error("unexpected thumbnail generation"));
     api = createWebSendApi({
+      recipients: createTestWhatsAppRecipientResolver(),
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
     });
@@ -121,6 +124,19 @@ describe("createWebSendApi", () => {
       direction: "outbound",
     });
   }
+
+  it("edits the specified own message through the resolved recipient", async () => {
+    await api.editMessage("+1555", "approval-1", "Approved.\n\nExact reply");
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith("1555@s.whatsapp.net", {
+      text: "Approved.\n\nExact reply",
+      edit: { remoteJid: "1555@s.whatsapp.net", id: "approval-1", fromMe: true },
+    });
+  });
+
+  it("does not report editing success without a platform receipt", async () => {
+    sendMessage.mockResolvedValueOnce(undefined);
+    await expect(api.editMessage("+1555", "approval-1", "Approved")).rejects.toThrow();
+  });
 
   it("uses sendOptions fileName for outbound documents", async () => {
     const payload = Buffer.from("pdf");
@@ -278,6 +294,7 @@ describe("createWebSendApi", () => {
 
   it("adds native mention metadata to group text sends", async () => {
     api = createWebSendApi({
+      recipients: createTestWhatsAppRecipientResolver(),
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
       resolveOutboundMentions: ({ jid, text }) =>
@@ -311,6 +328,7 @@ describe("createWebSendApi", () => {
     "only sends native mentions for visible phone numbers outside inline code: $messageText",
     async ({ messageText, nativeMention }) => {
       api = createWebSendApi({
+        recipients: createTestWhatsAppRecipientResolver(),
         sock: { sendMessage, sendPresenceUpdate },
         defaultAccountId: "main",
         resolveOutboundMentions: ({ jid, text }) =>
@@ -375,6 +393,7 @@ describe("createWebSendApi", () => {
 
   it("adds native mention metadata to group media captions", async () => {
     api = createWebSendApi({
+      recipients: createTestWhatsAppRecipientResolver(),
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
       resolveOutboundMentions: ({ jid, text }) =>
@@ -399,6 +418,7 @@ describe("createWebSendApi", () => {
 
   it("uses resolved mention caption text for forced-document media", async () => {
     api = createWebSendApi({
+      recipients: createTestWhatsAppRecipientResolver(),
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
       resolveOutboundMentions: ({ jid, text }) =>
@@ -555,6 +575,7 @@ describe("createWebSendApi", () => {
   it("preserves the accepted voice receipt when caption mention resolution fails", async () => {
     const mentionError = new Error("group metadata lookup disconnected");
     api = createWebSendApi({
+      recipients: createTestWhatsAppRecipientResolver(),
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
       resolveOutboundMentions: vi.fn().mockRejectedValue(mentionError),
@@ -836,7 +857,7 @@ describe("createWebSendApi LID resolution (issue #67378)", () => {
     const api = createWebSendApi({
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
-      authDir,
+      recipients: createTestWhatsAppRecipientResolver({}, authDir),
     });
     await api.sendMessage("+15555550000", "hello");
     expect(sendMessage).toHaveBeenCalledWith("987654@lid", { text: "hello" });
@@ -846,7 +867,7 @@ describe("createWebSendApi LID resolution (issue #67378)", () => {
     const api = createWebSendApi({
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
-      authDir,
+      recipients: createTestWhatsAppRecipientResolver({}, authDir),
     });
     await api.sendMessage("+33123456789", "hello");
     expect(sendMessage).toHaveBeenCalledWith("33123456789@s.whatsapp.net", { text: "hello" });
@@ -856,7 +877,7 @@ describe("createWebSendApi LID resolution (issue #67378)", () => {
     const api = createWebSendApi({
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
-      authDir,
+      recipients: createTestWhatsAppRecipientResolver({}, authDir),
     });
     await api.sendPoll("+15555550000", { question: "Q?", options: ["a", "b"] });
     expect(requireMockArg(sendMessage, 0, 0, "send poll")).toBe("987654@lid");
@@ -871,7 +892,7 @@ describe("createWebSendApi LID resolution (issue #67378)", () => {
     const api = createWebSendApi({
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
-      authDir,
+      recipients: createTestWhatsAppRecipientResolver({}, authDir),
     });
     await api.sendReaction("+15555550000", "msg-2", "1️⃣", true);
     expect(requireMockArg(sendMessage, 0, 0, "send reaction")).toBe("987654@lid");
@@ -893,7 +914,7 @@ describe("createWebSendApi LID resolution (issue #67378)", () => {
     const api = createWebSendApi({
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
-      authDir,
+      recipients: createTestWhatsAppRecipientResolver({}, authDir),
     });
     await api.sendComposingTo("+15555550000");
     expect(sendPresenceUpdate).toHaveBeenCalledWith("composing", "987654@lid");
@@ -903,9 +924,76 @@ describe("createWebSendApi LID resolution (issue #67378)", () => {
     const api = createWebSendApi({
       sock: { sendMessage, sendPresenceUpdate },
       defaultAccountId: "main",
-      authDir,
+      recipients: createTestWhatsAppRecipientResolver({}, authDir),
     });
     await api.sendComposingTo("120363401234567890@newsletter");
     expect(sendPresenceUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("createWebSendApi registered recipients", () => {
+  // WhatsApp registers this Mexican mobile as 521…; a system of record stores it as +52….
+  const STORED = "+525500000000";
+  const REGISTERED_JID = "5215500000000@s.whatsapp.net";
+  const sendMessage = vi.fn(
+    async (_jid: string, _content: AnyMessageContent): Promise<WAMessage | undefined> =>
+      ({ key: { id: "msg-1" } }) as WAMessage,
+  );
+  const sendPresenceUpdate = vi.fn(async () => {});
+  const lookup = vi.fn(async (_phoneJid: string) => [{ jid: REGISTERED_JID, exists: true }]);
+  const createApi = () =>
+    createWebSendApi({
+      sock: { sendMessage, sendPresenceUpdate },
+      defaultAccountId: "main",
+      recipients: createWhatsAppRecipientResolver({ lookup }),
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    ["text", (api: ReturnType<typeof createApi>) => api.sendMessage(STORED, "Hola")],
+    [
+      "poll",
+      (api: ReturnType<typeof createApi>) =>
+        api.sendPoll(STORED, { question: "Q?", options: ["a", "b"] }),
+    ],
+    [
+      "reaction",
+      (api: ReturnType<typeof createApi>) => api.sendReaction(STORED, "msg-2", "👍", false),
+    ],
+  ] as const)("sends a %s to the jid WhatsApp registered for the number", async (_kind, run) => {
+    await run(createApi());
+
+    expect(requireMockArg(sendMessage, 0, 0, "send")).toBe(REGISTERED_JID);
+    expect(lookup).toHaveBeenCalledWith("525500000000@s.whatsapp.net");
+  });
+
+  it("shows typing in the registered chat", async () => {
+    await createApi().sendComposingTo(STORED);
+
+    expect(sendPresenceUpdate).toHaveBeenCalledWith("composing", REGISTERED_JID);
+  });
+
+  it("refuses a number WhatsApp has no account for and sends nothing", async () => {
+    lookup.mockResolvedValueOnce([]);
+
+    await expect(createApi().sendMessage(STORED, "Hola")).rejects.toMatchObject({
+      name: "PlatformMessageNotDispatchedError",
+      retryable: false,
+    });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("asks WhatsApp again after a failed send", async () => {
+    const api = createApi();
+    sendMessage.mockRejectedValueOnce(new Error("connection closed"));
+
+    await expect(api.sendMessage(STORED, "Hola")).rejects.toThrow("connection closed");
+    await api.sendMessage(STORED, "Hola");
+    await api.sendMessage(STORED, "Hola");
+
+    expect(lookup).toHaveBeenCalledTimes(2);
   });
 });

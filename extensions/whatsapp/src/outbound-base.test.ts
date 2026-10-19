@@ -7,6 +7,17 @@ import { createWhatsAppPollFixture } from "./outbound-test-support.js";
 import { cacheInboundMessageMeta } from "./quoted-message.js";
 import { sendMessageWhatsApp as sendMessage, sendPollWhatsApp as sendPoll } from "./send.js";
 
+// Every account is connected; each number is registered under its own digits.
+vi.mock("./active-listener.js", async (importOriginal) => {
+  const { createTestWhatsAppRecipientResolver } =
+    await import("./inbound/recipient-resolver.test-helper.js");
+  const recipients = createTestWhatsAppRecipientResolver();
+  return {
+    ...(await importOriginal<typeof import("./active-listener.js")>()),
+    getActiveWebListener: () => ({ recipients }),
+  };
+});
+
 type MockWithCalls = {
   mock: { calls: unknown[][] };
 };

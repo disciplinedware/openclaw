@@ -1,17 +1,29 @@
 # whatsapp-for-business
 
-The OpenClaw WhatsApp channel plugin (`@openclaw/whatsapp`, OpenClaw `v2026.10.2`), built from the disciplinedware fork of OpenClaw (github.com/disciplinedware/openclaw). Branch `whatsapp-own-messages-approvals` holds own messages and native approvals in the shape upstream would take them; branch `whatsapp-for-business` adds one packaging commit that publishes them as this package, and then the `owner` target and cross-chat send history. It keeps the channel id `whatsapp`, so routing, session keys, `toolsBySender` keys (`e164:<phone>`) and other plugins see no difference. It changes four things:
+The OpenClaw WhatsApp channel plugin (`@openclaw/whatsapp`, OpenClaw `v2026.10.2`), built from the disciplinedware fork of OpenClaw (github.com/disciplinedware/openclaw). Branch `whatsapp-own-messages-approvals` holds own messages and native approvals in the shape upstream would take them; branch `whatsapp-for-business` adds one packaging commit that publishes them as this package, and then the `owner` target and cross-chat send history. It keeps the channel id `whatsapp`, so routing, session keys, `toolsBySender` keys (`e164:<phone>`) and other plugins see no difference. It changes five things:
 
-| Capability       | Config key                                        | Upstream behavior                                                                                                                                                                                                                                                                          |
-| ---------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Own messages     | `channels.whatsapp[.accounts.<id>].ownMessages`   | A message that the linked phone itself sends to another person is dropped. The agent never sees it.                                                                                                                                                                                        |
-| Native approvals | `channels.whatsapp[.accounts.<id>].execApprovals` | WhatsApp has no `execApprovals` block. Approvers come from `allowFrom`, so with `allowFrom: ["*"]` anyone who can react to the prompt resolves it, the business number included. Native prompts need `approvals.exec` or `approvals.plugin` and go to the chat that the request came from. |
-| `owner` target   | `commands.ownerAllowFrom`                         | To write to the owner, the agent must know the owner's number, and the number comes back in the `message` tool result.                                                                                                                                                                     |
-| Send history     | none                                              | A `message` send from one chat's session to another chat reaches that chat's transcript as a delivery mirror, which the model never reads: the recipient's next turn does not know what was written to them.                                                                               |
+| Capability       | Config key                                                         | Upstream behavior                                                                                                                                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Own messages     | `channels.whatsapp[.accounts.<id>].ownMessages`                    | A message that the linked phone itself sends to another person is dropped. The agent never sees it.                                                                                                                                                                                        |
+| Native approvals | `channels.whatsapp[.accounts.<id>].execApprovals`                  | WhatsApp has no `execApprovals` block. Approvers come from `allowFrom`, so with `allowFrom: ["*"]` anyone who can react to the prompt resolves it, the business number included. Native prompts need `approvals.exec` or `approvals.plugin` and go to the chat that the request came from. |
+| `owner` target   | `commands.ownerAllowFrom`                                          | To write to the owner, the agent must know the owner's number, and the number comes back in the `message` tool result.                                                                                                                                                                     |
+| Send history     | none                                                               | A `message` send from one chat's session to another chat reaches that chat's transcript as a delivery mirror, which the model never reads: the recipient's next turn does not know what was written to them.                                                                               |
+| Overdue answers  | `plugins.entries.whatsapp-for-business.config.blockOverdueAnswers` | When enabled, the plugin refuses overdue sends. When disabled, each turn receives the current policy, and an old refusal does not establish current permission. Other policies and approval requirements still apply.                                                                      |
 
 Native approvals follow `channels.telegram.execApprovals`: the same keys, the same approver fallback to `commands.ownerAllowFrom`, the same DM-first delivery. This is a breaking change against upstream: `allowFrom` no longer makes anyone an approver, so a config that relied on it must name the approvers in `execApprovals.approvers` or `commands.ownerAllowFrom`. Without `ownMessages`, own messages behave as upstream. `NOTICE` names the upstream source; `git diff v2026.10.2 whatsapp-for-business -- extensions/whatsapp src/config` shows every change.
 
 ## Requirements
+
+Approved plugin requests retain their proposed text. Denied and expired plugin requests show only the terminal status.
+Approval, denial and expiry update the existing card. Failed editing sends a quoted terminal update.
+The native handler unbinds reactions before terminal transport. Cleanup failure never restores approval authority.
+For message approvals with native `scope.kind: "message-send"` and `scope.target: "whatsapp"`, a quoted receipt reports the settled send result.
+The receipt matches the native run, session and tool-call identities. Authorization alone never establishes delivery.
+The approval edit and receipt can arrive in either order. A successful receipt explicitly states both approval and sending.
+Failed receipt delivery stays in the retained outbox for startup recovery. Recovery never retries the original operation.
+An interrupted process without a settled result produces an unknown outcome, not a successful-send claim.
+Receipt recovery is at least once: a crash after transport acceptance can repeat a status notice.
+Cards and status notices enter the owner's native transcript with source and recipient conversation references. These references remain history-only.
 
 - OpenClaw `2026.10.2` (`compat.pluginApi >=2026.10.2`).
 - Node.js `>=24.16.0 <25 || >=26.1.0`, as OpenClaw requires.
@@ -48,6 +60,10 @@ The linked-device credentials stay where they are (`authDir`), so no new QR link
 
 Both keys can sit at `channels.whatsapp` or at `channels.whatsapp.accounts.<id>`. An account value replaces the root value as a whole. As for every upstream key, values on `accounts.default` are shared defaults for the other accounts. The plugin reads them for each message, so a config change applies without a restart.
 
+### Overdue answers
+
+`blockOverdueAnswers` defaults to `true`. When it is `false`, the plugin adds a current-turn fact that its overdue refusal is disabled. The fact does not grant permission under another policy or remove approval requirements.
+
 ### `execApprovals`
 
 ```json5
@@ -63,18 +79,18 @@ Both keys can sit at `channels.whatsapp` or at `channels.whatsapp.accounts.<id>`
 }
 ```
 
-| Key             | Values                                    | Effect                                                                                                                                             |
-| --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`       | `"auto"` (default), `true`, `false`       | `"auto"` and `true` turn native approvals on when at least one approver resolves; `false` turns them off.                                          |
-| `approvers`     | E.164 numbers                             | Who may approve. Unset or empty: the WhatsApp entries of `commands.ownerAllowFrom` (`whatsapp:+15550000200` or a bare number).                     |
-| `target`        | `"dm"` (default), `"channel"`, `"both"`   | Where the prompt goes: the approvers' direct chats, the chat that the request came from, or both. `channel` shows the request to that chat.        |
-| `agentFilter`   | agent ids                                 | Only requests of these agents.                                                                                                                     |
-| `sessionFilter` | session-key patterns (substring or regex) | Only requests of matching sessions.                                                                                                                |
-| `notifyOrigin`  | `true` (default), `false`                 | With `target: "dm"`, whether the chat that the request came from hears that the request went to WhatsApp DMs. `false` keeps a guest's chat silent. |
+| Key             | Values                                    | Effect                                                                                                                                               |
+| --------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`       | `"auto"` (default), `true`, `false`       | `"auto"` and `true` turn native approvals on when at least one approver resolves; `false` turns them off.                                            |
+| `approvers`     | E.164 numbers                             | Who may approve. Unset or empty: the WhatsApp entries of `commands.ownerAllowFrom` (`whatsapp:+15550000200` or a bare number).                       |
+| `target`        | `"dm"` (default), `"channel"`, `"both"`   | Where the prompt goes: the approvers' direct chats, the chat that the request came from, or both. `channel` shows the request to that chat.          |
+| `agentFilter`   | agent ids                                 | Only requests of these agents.                                                                                                                       |
+| `sessionFilter` | session-key patterns (substring or regex) | Only requests of matching sessions.                                                                                                                  |
+| `notifyOrigin`  | `true` (default), `false`                 | With `target: "dm"`, whether the chat that the request came from hears that the request went to WhatsApp DMs. `false` keeps a contact's chat silent. |
 
 Authorization:
 
-- Only a resolved approver resolves an exec, plugin (`plugin:` id) or system-agent approval, by a 👍/👎 reaction on the prompt or by `/approve`. Everyone else is refused, the business number and every guest included.
+- Only a resolved approver resolves an exec, plugin (`plugin:` id) or system-agent approval, by a 👍/👎 reaction on the prompt or by `/approve`. Everyone else is refused, the business number and every contact included.
 - `allowFrom`, `dmPolicy` and `defaultTo` admit senders and set default targets; they never make an approver.
 - No approver resolves: nobody approves in WhatsApp, and `/approve` for an exec request answers that WhatsApp exec approvals are not enabled. The Web UI still approves.
 - A recipient of an `approvals.exec` target in mode `targets` or `both` may also approve exec requests, as on Telegram.
@@ -83,10 +99,18 @@ Delivery:
 
 - The native runtime of the account handles exec, plugin and system-agent approvals that match the account and the filters, with no `approvals.exec` or `approvals.plugin` config. It sends the prompt, binds the 👍/👎 reaction to that message, and updates the prompt when the approval resolves or expires.
 - For a request that came from WhatsApp, OpenClaw's shared forwarder sends no second WhatsApp copy.
-- With `target: "dm"`, the chat that the request came from gets OpenClaw's notice `Approval required. I sent the approval request to WhatsApp DMs, not this chat.`, as on Telegram, Discord and Slack. For a request from a guest's chat, the guest sees that notice; `notifyOrigin: false` keeps that chat silent while the approvers still get the prompt.
+- With `target: "dm"`, the chat that the request came from gets OpenClaw's notice `Approval required. I sent the approval request to WhatsApp DMs, not this chat.`, as on Telegram, Discord and Slack. For a request from a contact's chat, the contact sees that notice; `notifyOrigin: false` keeps that chat silent while the approvers still get the prompt.
 - If every native delivery of a request fails, OpenClaw sends a delivery-failed notice with the approval id and the `/approve` commands to the chat that the request came from. Only an approver can use it.
 - Native prompts go through the plugin's own WhatsApp send path, so the `message_sending` hook does not run for them.
 - `approvals.exec` and `approvals.plugin` with WhatsApp targets still work through the shared forwarder, as upstream; the reaction binds to the delivered message and the rules above authorize it.
+
+Hooks receive the original admitted message body in `ctx.channelContext.chat.receivedText` for the current run. An approval may quote this text separately from the proposed message. The text does not establish sender identity or permission.
+
+The `message` tool exposes optional string `replyContext` for sends and reactions, including cross-chat discovery.
+The model supplies the relevant request and unresolved questions in this field alongside the exact operation arguments.
+The field is review metadata. It is not appended to outgoing text or media and does not authorize delivery.
+The ACS adapter requires a nonempty summary when Guardian returns `ask`; ordinary calls on `allow` need no summary.
+Missing or oversized summaries produce correction errors before approval. The adapter does not invoke another model or read history.
 
 ### `ownMessages`
 
@@ -101,28 +125,27 @@ Delivery:
 }
 ```
 
-An own message is a message that the linked phone itself sends, live, to another person's direct chat: for example, the owner of the business types to a guest on the business phone.
+An own message is a message that the linked phone itself sends, live, to another person's direct chat: for example, the owner of the business types to a contact on the business phone.
 
-| Value           | Effect                                                                                                                                                                                                                                          |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `off` (default) | Upstream behavior: the message is dropped.                                                                                                                                                                                                      |
-| `history`       | The message is kept as history of that chat. The next dispatched turn of that chat receives it as a platform-selected history window (`historyKind: "recent"`). No agent run, no send.                                                          |
-| `turn`          | The same history, and one agent run in the owner's direct session on this account, as a room event (`InboundEventKind: "room_event"`): the agent observes what the owner said and replies only with the `message` tool, when a reply is useful. |
+| Value           | Effect                                                                                                                                                                                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `off` (default) | Upstream behavior: the message is dropped.                                                                                                                                                                                                               |
+| `history`       | The message is appended to that chat's native session transcript. No agent run starts and no message is sent.                                                                                                                                            |
+| `turn`          | The same transcript entry, and one agent run in the owner's direct session on this account, as a room event (`InboundEventKind: "room_event"`): the agent observes what the owner said and replies only with the `message` tool, when a reply is useful. |
 
 The owner is the first entry of `commands.ownerAllowFrom` that is `whatsapp:+<number>` or a bare number: the same owner list that `execApprovals` falls back to, picked the way OpenClaw picks the owner route for heartbeat delivery. In `turn` mode without such an entry, the history is kept, no turn runs, and the gateway log says so.
 
 History:
 
-- Pending own messages are kept in plugin state for 24 hours, at most the newest 1,000 across all chats: OpenClaw's bounded keyed store sheds the oldest entries past its `maxEntries`, as for the persistent sent-message caches of Slack and Microsoft Teams. An own message shed early is missing from that chat's history; nothing else changes. A dispatched turn of the chat consumes them; a failed dispatch keeps them for the next turn.
-- A turn carries at most `historyLimit` of them (the same limit as group history).
-- Each entry has the sender `(self)`, the attribution OpenClaw gives a message the account itself sent in a direct chat, so it reads `(self): <text>`.
+- Each message is appended as an assistant entry to the direct chat's native transcript. The visible text starts with `(self): [sent manually from the linked WhatsApp phone]` and keeps the message text and media placeholder.
+- A retained plugin-state outbox retries failed transcript appends at startup. It removes an entry only after the native transcript append succeeds.
 
 The owner turn:
 
 - Its message body is the own message as OpenClaw writes a message the account itself sent in a direct chat (`formatInboundEnvelope` with `fromMe`): the other person's number in the envelope, then `(self):` and the content (text, then a media placeholder such as `<media:image>`):
 
   ```text
-  [WhatsApp +15550000300 Thu 2025-10-09T08:53:20Z] (self): The pool is cleaned on Mondays.
+  [WhatsApp +15550000300 Thu 2025-10-09T08:53:20Z] (self): The report is ready on Mondays.
   ```
 
   The timestamp follows the envelope settings of every inbound message (`agents.defaults.userTimezone`); the example shows UTC. The turn's prompt carries this line once: the owner chat adds no second envelope.
@@ -165,25 +188,25 @@ Limits:
 
 ### Cross-chat send history
 
-No config. Each sender has their own session when `session.dmScope` is `per-account-channel-peer` (or `per-peer`, `per-channel-peer`). When the agent in the owner's direct session (the WhatsApp entry of `commands.ownerAllowFrom`) sends with the `message` tool to another person's direct chat, the plugin records the message as history of the recipient's chat, the same history that `ownMessages` fills. The recipient's next dispatched turn receives it and consumes it:
+No config. Each sender has their own session when `session.dmScope` is `per-account-channel-peer` (or `per-peer`, `per-channel-peer`). When the agent in the owner's direct session (the WhatsApp entry of `commands.ownerAllowFrom`) sends with the `message` tool to another person's direct chat, the plugin appends the delivery to the recipient's native session transcript without starting a turn:
 
 ```text
-[WhatsApp +15550000300 Thu 2025-10-09T09:10:00Z] (self): [sent by the assistant from another chat] Your late checkout is approved.
+[WhatsApp +15550000300 Thu 2025-10-09T09:10:00Z] (self): [sent by the assistant from another chat] Your order A-100 has shipped.
 ```
 
-- The entry reads `(self):` as every message the account sent, then `[sent by the assistant from another chat]`, so the model tells it from a message typed on the phone. Media sent with it shows as a placeholder such as `<media:image>`.
-- The same rules as for own messages apply: 24 hours, at most 1,000 pending entries across all chats, at most `historyLimit` per turn, kept when the dispatch fails. The assistant's entries reach the turn whatever `ownMessages` is. With `ownMessages: "off"`, entries typed on the phone and stored before the switch are consumed by the next turn without being shown.
+- The entry reads `(self): [sent by the assistant from another chat]`, so the model can distinguish it from a message typed on the phone. Media sent with it shows as a placeholder such as `<media:image>`.
+- The entry becomes part of the native transcript immediately after delivery is recorded. `ownMessages: "off"` disables recording messages typed on the phone; it does not hide assistant or system entries.
 - A send from the recipient's own session is already in that session's transcript, so it is never recorded. The plugin compares the session that made the send with the recipient's direct session as OpenClaw routes an inbound message from that person (`resolveAgentRoute`).
 - Only a send from the owner's chat is recorded. A send from anyone else's chat, such as a customer's question the agent forwards to `owner`, can carry that person's words; recorded as the assistant's own message in another chat, they would be read as the assistant's, with that chat's tools. The owner reads such a forward on the phone, and quoting it brings its text into the owner's turn as a quote.
 
 How it works and its limits:
 
 - The plugin reads the `after_tool_call` hook of the `message` tool: the hook alone carries the session that made the send. The transport send does not: for a tool send, OpenClaw's gateway delivers under the recipient's session. The hook needs no `allowConversationAccess`.
-- Only `action: "send"` with a settled delivery counts. Polls, reactions, `upload-file`, sends to groups and newsletters, failed, suppressed and dry-run sends are not recorded; nor are messages that OpenClaw sends outside the `message` tool (cron delivery, approval prompts, replies).
+- Cross-chat recording covers `action: "send"` with a settled delivery and a real message ID. Polls, reactions, `upload-file`, groups, newsletters, failed, suppressed and dry-run sends are excluded. Native approval cards and status notices use their own delivered-message producer. Same-session replies remain OpenClaw's responsibility.
 - The recorded text is the `message` argument of the tool call, before OpenClaw adds a response prefix.
 - The account is the one the send went through. A call that names `accountId` went through that account. A call that names none went through the run's account, as core sends it: the plugin takes the one account on which the sending session is the owner's direct session. When `session.dmScope` leaves the account out of the session key (`per-peer`, `per-channel-peer`) and several WhatsApp accounts exist, no single account matches, and the plugin records nothing rather than guess.
-- Ordering: OpenClaw starts `after_tool_call` after the tool returns and does not wait for it, and no plugin path that runs before the send settles knows the sending session. So the entry is stored shortly after the send, not before it. A turn of the recipient that reads its history before the entry is stored does not show it; the turn consumes only the entries it read, so the entry stays pending and the recipient's next turn shows it. An entry is never lost to this race and never shown twice.
-- An owner turn started by `ownMessages` shows no history of the owner's chat; the next message that the owner writes to the business number shows it.
+- Ordering: OpenClaw starts `after_tool_call` after the tool returns and does not wait for it. The entry is appended shortly after delivery settles. A concurrent recipient turn can read the transcript before that append completes; the next history read then sees it.
+- An owner turn started by `ownMessages` shows no history of the owner's chat. The owner's chat still retains the linked-phone message in the recipient's transcript.
 
 ## Development
 

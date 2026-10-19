@@ -15,6 +15,7 @@ import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-run
 import { withStateDirEnv } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { whatsappChannelOutbound, whatsappMessageAdapter } from "./channel-outbound.js";
+import { createTestWhatsAppRecipientResolver } from "./inbound/recipient-resolver.test-helper.js";
 import { createWebSendApi } from "./inbound/send-api.js";
 import { createAcceptedWhatsAppSendResult } from "./inbound/send-result.test-helper.js";
 import type { ActiveWebListener } from "./inbound/types.js";
@@ -104,7 +105,11 @@ describe("WhatsApp delivery recovery", () => {
         createAcceptedWhatsAppSendResult("text", `part-${sendMessage.mock.calls.length}`),
       );
       runtimeContextMocks.controllers.set(accountId, {
-        getActiveListener: () => ({ sendMessage, sendComposingTo: vi.fn() }),
+        getActiveListener: () => ({
+          sendMessage,
+          sendComposingTo: vi.fn(),
+          recipients: createTestWhatsAppRecipientResolver(),
+        }),
       });
       const onDeliveryResult = vi.fn();
       const result = await sendDurableMessageBatch({
@@ -148,7 +153,11 @@ describe("WhatsApp delivery recovery", () => {
       createAcceptedWhatsAppSendResult("text", `payload-${sendMessage.mock.calls.length}`),
     );
     runtimeContextMocks.controllers.set(accountId, {
-      getActiveListener: () => ({ sendMessage, sendComposingTo: vi.fn() }),
+      getActiveListener: () => ({
+        sendMessage,
+        sendComposingTo: vi.fn(),
+        recipients: createTestWhatsAppRecipientResolver(),
+      }),
     });
     const onPlatformSendDispatch = vi.fn(async () => {});
     const onDeliveryResult = vi.fn();
@@ -195,7 +204,9 @@ describe("WhatsApp delivery recovery", () => {
         } as WAMessage;
       },
     );
+    const recipients = createTestWhatsAppRecipientResolver();
     const sendApi = createWebSendApi({
+      recipients,
       sock: {
         sendMessage: socketSend,
         sendPresenceUpdate: vi.fn(async () => undefined),
@@ -203,7 +214,7 @@ describe("WhatsApp delivery recovery", () => {
       defaultAccountId: accountId,
     });
     runtimeContextMocks.controllers.set(accountId, {
-      getActiveListener: () => sendApi,
+      getActiveListener: () => ({ ...sendApi, recipients }),
     });
     const mediaAccess = {
       localRoots: ["/tmp/whatsapp-dispatch-fixture"],
@@ -415,7 +426,11 @@ describe("WhatsApp delivery recovery", () => {
           return createAcceptedWhatsAppSendResult("text", "accepted-first");
         });
         runtimeContextMocks.controllers.set(accountId, {
-          getActiveListener: () => ({ sendMessage, sendComposingTo: vi.fn() }),
+          getActiveListener: () => ({
+            sendMessage,
+            sendComposingTo: vi.fn(),
+            recipients: createTestWhatsAppRecipientResolver(),
+          }),
         });
         const result = await sendDurableMessageBatch({
           cfg: { channels: { whatsapp: { textChunkLimit: 160 } } },
@@ -465,9 +480,11 @@ describe("WhatsApp delivery recovery", () => {
         createAcceptedWhatsAppSendResult("text", "recovered-message"),
       );
       const listener: ActiveWebListener = {
+        recipients: createTestWhatsAppRecipientResolver(),
         sendComposingTo: vi.fn(async () => {}),
         sendMessage,
         sendPoll: vi.fn(async () => createAcceptedWhatsAppSendResult("poll", "poll")),
+        editMessage: vi.fn(async () => undefined),
         sendReaction: vi.fn(async () => createAcceptedWhatsAppSendResult("reaction", "reaction")),
       };
       const controller = {

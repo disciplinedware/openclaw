@@ -4,11 +4,12 @@ import { addWhatsAppImagePreviewFields } from "../image-preview.js";
 import { isWhatsAppNewsletterJid } from "../normalize-target.js";
 import { buildQuotedMessageOptions } from "../quoted-message.js";
 import type { WhatsAppSocketOperationAdapter } from "../socket-timing.js";
-import { toWhatsappJid, toWhatsappJidWithLid } from "../targets-runtime.js";
+import { toWhatsappJid } from "../targets-runtime.js";
 import {
   addWhatsAppOutboundMentionsToContent,
   type WhatsAppOutboundMentionResolution,
 } from "./outbound-mentions.js";
+import type { WhatsAppRecipientResolver } from "./recipient-resolver.js";
 import {
   combineWhatsAppSendResults,
   mergeWhatsAppAcceptedSendError,
@@ -42,16 +43,9 @@ export function createWebSendApi(params: {
     jid: string;
     text: string;
   }) => Promise<WhatsAppOutboundMentionResolution> | WhatsAppOutboundMentionResolution;
-  // When provided, lets outbound resolve `{phone}@s.whatsapp.net` to `{lid}@lid`
-  // via Baileys' lid-mapping-{phone-digits}.json files in the auth dir, so
-  // proactive sends to LID-addressed contacts reach the recipient instead of
-  // ending up in a sender-only ghost chat (#67378). Defaults to PN-only.
-  authDir?: string;
+  recipients: WhatsAppRecipientResolver;
 }) {
-  const resolveOutboundJid = (recipient: string): string =>
-    params.authDir
-      ? toWhatsappJidWithLid(recipient, { authDir: params.authDir })
-      : toWhatsappJid(recipient);
+  const { recipients } = params;
   const resolveMentions = async (
     jid: string,
     text: string,
@@ -60,6 +54,7 @@ export function createWebSendApi(params: {
       ? await params.resolveOutboundMentions({ jid, text })
       : { text, mentionedJids: [] };
   const runAcceptedSend = async (
+    to: string,
     kind: WhatsAppSendKind,
     accountId: string,
     send: (
@@ -78,6 +73,8 @@ export function createWebSendApi(params: {
       });
       return combineWhatsAppSendResults(kind, results);
     } catch (error) {
+      // The number may have moved to another chat since WhatsApp last said where it lives.
+      recipients.forget(to);
       throw mergeWhatsAppAcceptedSendError({ error, kind, results });
     }
   };
@@ -86,8 +83,8 @@ export function createWebSendApi(params: {
     content: AnyMessageContent,
     kind: WhatsAppSendKind,
   ): Promise<WhatsAppSendResult> => {
-    const jid = resolveOutboundJid(to);
-    return await runAcceptedSend(kind, params.defaultAccountId, async (capture) => {
+    const jid = await recipients.resolveSendJid(to);
+    return await runAcceptedSend(to, kind, params.defaultAccountId, async (capture) => {
       capture(await params.sock.sendMessage(jid, content), kind);
     });
   };
@@ -101,7 +98,7 @@ export function createWebSendApi(params: {
       sendOptions?: ActiveWebSendOptions,
     ): Promise<WhatsAppSendResult> => {
       let mediaType = mediaTypeInput;
-      const jid = resolveOutboundJid(to);
+      const jid = await recipients.resolveSendJid(to);
       let payload: AnyMessageContent;
       if (mediaBuffer) {
         mediaType ??= "application/octet-stream";
@@ -147,11 +144,11 @@ export function createWebSendApi(params: {
         ...sendOptions?.quotedMessageKey,
         messageId: sendOptions?.quotedMessageKey?.id,
         destinationJid: jid,
-        requestedJid: toWhatsappJid(to),
+        requestedJid: await recipients.resolvePhoneJid(to),
       });
       const kind = mediaBuffer ? "media" : "text";
       const accountId = sendOptions?.accountId ?? params.defaultAccountId;
-      return await runAcceptedSend(kind, accountId, async (capture) => {
+      return await runAcceptedSend(to, kind, accountId, async (capture) => {
         const sendPayload = async (content: AnyMessageContent) =>
           quotedOpts
             ? await params.sock.sendMessage(jid, content, quotedOpts)
@@ -224,6 +221,16 @@ export function createWebSendApi(params: {
         },
         "sticker",
       ),
+    editMessage: async (chatJid: string, messageId: string, text: string): Promise<void> => {
+      const jid = await recipients.resolveSendJid(chatJid);
+      normalizeWhatsAppSendResult(
+        await params.sock.sendMessage(jid, {
+          text,
+          edit: { remoteJid: jid, id: messageId, fromMe: true },
+        }),
+        "text",
+      );
+    },
     sendReaction: async (
       chatJid: string,
       messageId: string,
@@ -233,7 +240,7 @@ export function createWebSendApi(params: {
     ): Promise<WhatsAppSendResult> => {
       // Resolve DM targets through the same LID-aware path as normal sends so
       // reactions land on the delivered WhatsApp message key.
-      const jid = resolveOutboundJid(chatJid);
+      const jid = await recipients.resolveSendJid(chatJid);
       const result = await params.sock.sendMessage(jid, {
         react: {
           text: emoji,
@@ -248,7 +255,7 @@ export function createWebSendApi(params: {
       return normalizeWhatsAppSendResult(result, "reaction");
     },
     sendComposingTo: async (to: string): Promise<void> => {
-      const jid = resolveOutboundJid(to);
+      const jid = await recipients.resolveSendJid(to);
       if (isWhatsAppNewsletterJid(jid)) {
         return;
       }

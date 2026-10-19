@@ -132,8 +132,9 @@ A separate WhatsApp number is recommended (setup and metadata are optimized for 
 ## Runtime model
 
 - The gateway owns the WhatsApp socket and reconnect loop.
-- A watchdog tracks two signals independently: raw WhatsApp Web transport activity and application-message activity. A quiet-but-connected session is not restarted just because no message arrived recently; it forces reconnect only when transport frames stop arriving for a fixed internal window (not user-configurable) or application messages stay silent past 4x the normal message timeout. Right after a reconnect for a recently active session, that first window uses the shorter normal message timeout instead of the 4x window. OpenClaw can auto-reply to offline messages that Baileys delivers early in that reconnect, bounded by the inbound message-ID dedupe lifetime; initial startup keeps the short stale-history guard.
+- A watchdog tracks two signals independently: raw WhatsApp Web transport activity and application-message activity. A quiet-but-connected session is not restarted just because no message arrived recently; it forces reconnect only when transport frames stop arriving for a fixed internal window (not user-configurable) or application messages stay silent past 4x the normal message timeout. Right after a reconnect for a recently active session, that first window uses the shorter normal message timeout instead of the 4x window. OpenClaw can auto-reply to offline messages that Baileys delivers early in that reconnect, bounded by the inbound message-ID dedupe lifetime. Older backfill follows [overdue answers](#overdue-answers).
 - Outbound sends require an active WhatsApp listener for the target account; sends fail fast otherwise.
+- A phone-number target goes to the chat WhatsApp registered for the number, never to a JID built from its digits. WhatsApp does not always register a number under its E.164 digits: a Mexican mobile stored as `+52…` is registered as `521…`. Before the first send to a number, the plugin asks WhatsApp (Baileys `onWhatsApp`) and keeps the answer for one hour per connection; a number with a stored LID mapping (`lid-mapping-<digits>.json` in the auth directory) needs no lookup. A number WhatsApp has no account for is refused and nothing is sent (not retryable). A lookup that fails or times out (`defaultQueryTimeoutMs`) fails the send as retryable. A failed send drops the kept answer for that number. A JID target (`…@s.whatsapp.net`, `…@lid`, `…@g.us`, `…@newsletter`) is sent to as given.
 - Group sends attach native mention metadata for `@+<digits>` and `@<digits>` tokens (in text and media captions) when the token matches current participant metadata, including LID-backed groups.
 - Status and broadcast chats (`@status`, `@broadcast`) are ignored.
 - Direct chats use DM session rules (`session.dmScope`; default `main` collapses DMs into the agent main session). With the default `session.groupScope: "per-group"`, group sessions are isolated per JID (`agent:<agentId>:whatsapp:group:<jid>`).
@@ -141,6 +142,46 @@ A separate WhatsApp number is recommended (setup and metadata are optimized for 
 - WhatsApp Web transport honors standard proxy environment variables on the gateway host (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, lowercase variants). Prefer host-level proxy config over per-channel settings.
 - On Node and Bun, media uploads use the same proxy environment and managed HTTPS-proxy trust, with `NO_PROXY` evaluated for each actual upload and redirect host independently of the WebSocket destination.
 - Media proxy URLs must use HTTP or HTTPS. Invalid media proxy settings fail uploads without blocking login or text messaging.
+
+## Overdue answers
+
+By default, a person who waited more than 15 minutes for an answer gets no reply from the business number; only the owner can contact them. The reason for the wait does not matter: a gateway restart, a reconnect, a queued turn, an approval wait or a slow model.
+
+The default setting blocks overdue sends. Set `plugins.entries.whatsapp-for-business.config.blockOverdueAnswers` to `false` only when another approval policy requires approval before every outbound message. This setting disables overdue send refusals, turn-level reply, typing and reaction suppression, read-receipt suppression, and the owner-only warning in turn context. The plugin still records unanswered messages and keeps the catch-up rules.
+
+```json5
+{
+  plugins: {
+    entries: {
+      "whatsapp-for-business": {
+        config: { blockOverdueAnswers: false },
+      },
+    },
+  },
+}
+```
+
+- **The rule.** For each person and account, the plugin keeps the person's earliest message that no answer and no turn of the agent handled. A message counts from its WhatsApp send time (`messageTimestamp`); a message without one counts as overdue. When that message is more than 15 minutes old, the answer is overdue. The fence is the iMessage [age fence](/channels/imessage/messaging#inbound-recovery-after-a-bridge-or-gateway-restart); it has no configuration.
+- **One person, one number.** A person is keyed by the number WhatsApp registered for the chat: the sender of an inbound message, the chat a send reached, the chat of the phone's own message. A send to another form of the number (`+52…` for `+521…`) answers the person.
+- **What answers.** A message delivered to the person: any send of the plugin that WhatsApp accepted (an automatic reply, a `message` tool send, a send the owner ordered), or a message the linked phone or another device of the account sent to the person's chat. A reaction or a deletion answers nothing.
+- **What the agent handled.** A turn of the person that sends nothing to anyone, starts before the answer is overdue and ends before it becomes overdue, chose silence (a 👍, a thank-you, a bot's notice): every message it read, its own and those that joined it while it ran (queue mode `steer`), needs no answer. A turn that sent or tried to send anything, to the owner included, leaves them as they are: a delivered answer already answered them, and a handoff to the owner, a refused send or an unapproved one leave them waiting. A turn that ends after the answer became overdue handles nothing, so the owner decides. A message that core queues as a follow-up turn is handled by no turn end the plugin sees: it waits for an answer, and after 15 minutes the owner decides. A new message from the person does not end an overdue answer: the earlier message still waits. After an answer, the next message from the person starts a new clock.
+- **Arrival paths.** Every direct message is recorded by its send time however it arrives: live, offline backfill after a restart, the reconnect catch-up window, or replay from the plugin's durable inbound queue. Order does not matter. Every direct message of the backfill gets a turn; nothing is dropped.
+- **Sends.** When `blockOverdueAnswers` is true, a `message` or `whatsapp_call` tool call that would reach a person whose answer is overdue is refused when the model makes the call, with the time of the earliest unanswered message and that only the owner can be written to (target `owner`, the one WhatsApp entry of `commands.ownerAllowFrom`). A known read-only `message` action (reading, searching, listing reactions or pins) passes, and so does a call whose every target is the owner or a group. A missing or unknown action counts as one that reaches the person. A call with no target reaches the run's current chat. A number is compared as WhatsApp registers it, so `+52…` and `+521…` of one Mexican mobile are one person. When enabled, a target that cannot be read as a number, or a number the plugin cannot check with WhatsApp at the call (no live connection, the lookup failed), is refused while any person's answer on the account is overdue. The decision is made at the call, so an approval wait after it does not make an approved send overdue.
+- **The owner decides.** A send from the owner's own run passes: a run in the owner's direct session, under a `session.dmScope` that gives every direct chat its own session. Under `dmScope: "main"` every direct chat shares one session, and a person's message can join the owner's run there, so no run counts as the owner's: every send to an overdue person is refused. A subagent, a scheduled run and a `sessions_send` run are not the owner's run either.
+- **Turns.** When `blockOverdueAnswers` is true, a turn of the person that starts while the answer is overdue reads a `WhatsApp overdue answer` block in the turn context: when the earliest unanswered message was sent, and that only the owner can be written to. Its replies, typing, and acknowledgement and status reactions are suppressed. Any turn's reply on the plugin's own reply path is also checked when it leaves, so a reply that comes after the answer became overdue is not sent.
+- **Read receipts.** When `blockOverdueAnswers` is true, the person's overdue messages get no read receipt, redelivered messages included, so the phone keeps showing them as unanswered.
+- **Never overdue.** The account's own chat and the chats of the WhatsApp entries of `commands.ownerAllowFrom` are never tracked. An owner is matched by the E.164 number, as OpenClaw matches command owners; two forms of one number (for example a Mexican mobile number as `+52…` and `+521…`) are two different numbers, so enter the owner in the form WhatsApp reports for the owner's chat. Groups are not tracked.
+- **Storage.** The state is kept in plugin state (namespace `whatsapp.unanswered-messages`): up to 10,000 people across all accounts, the least recently written going first, each forgotten 7 days after its last change. It survives a restart.
+- **Groups backfill.** Group backfill sent more than one minute before the connection opened (or before the reconnect catch-up window) is skipped and left unread on the phone.
+
+**Known limit: automatic replies outside the plugin's reply path.** OpenClaw delivers some automatic replies through core paths that the plugin does not see as replies, for example a follow-up run that the queue drains after the turn and delivers through `routeReply`. Such a reply reaches the channel only as an outbound send, and OpenClaw's `message_sending` hook does not say whether a send is an automatic reply or an approved `message` tool call, so the plugin cannot refuse it there without refusing the owner's approved sends. The upstream fix is to name the origin of the send (automatic reply or tool call) in `message_sending`. Until then, a deployment that needs the guarantee sets `messages.visibleReplies: "message_tool"`, so visible answers go through `message(action=send)`, where the refusal above applies, and runs a Guardian on those sends.
+
+Each turn that starts while an answer is overdue and each skipped group message is logged at the default level:
+
+```text
+WhatsApp overdue answer: turn started; only the owner can be written to account=<id> peer=<E.164> since=<iso>
+whatsapp: skipped group message missed while offline account=<id> group=<jid> sent=<iso> (<N> skipped since start)
+```
 
 ## Call the current requester with MeowCaller (experimental)
 
@@ -215,9 +256,22 @@ Limits: one-to-one outbound audio calls only, no arbitrary destination numbers, 
 
 WhatsApp is a native approval client like Telegram. It renders exec, plugin, and system-agent approval prompts with `👍`/`👎` reactions:
 
+Guardian/plugin approval instructions and outcomes use English by default. Set `plugins.entries.whatsapp-for-business.config.approvalLanguage` to `es` to show those service phrases in Spanish. The native message-send title `Approve message?` appears as `¿Enviar mensaje?`; the adapter description stays unchanged. Other plugin approval titles stay unchanged. Exec and system-agent approval text keeps the shared OpenClaw wording.
+
+The shared `message` tool exposes `requestApproval: true` for WhatsApp sends, including cross-chat sends. The flag asks the configured approval policy to review the send; the flag does not approve it. By default, the plugin blocks a flagged send if an approval policy does not clear the flag. Set `plugins.entries.whatsapp-for-business.config.unhandledApprovalPolicy` to `send` only when the operator permits flagged sends to proceed without approval if no policy handles them. The plugin does not create approval requests or store approval state, and it returns the prepared payload unchanged.
+
+When OpenClaw forces core delivery for an internal send, the WhatsApp payload-preparation callback does not run. Those internal sends do not use the shared `message` tool's `requestApproval` contract.
+
 ```json5
 {
   commands: { ownerAllowFrom: ["whatsapp:+15551234567"] },
+  plugins: {
+    entries: {
+      "whatsapp-for-business": {
+        config: { unhandledApprovalPolicy: "block" },
+      },
+    },
+  },
   channels: {
     whatsapp: {
       execApprovals: {
@@ -234,6 +288,7 @@ WhatsApp is a native approval client like Telegram. It renders exec, plugin, and
 - Approvers are E.164 numbers from `execApprovals.approvers`, or the WhatsApp entries of `commands.ownerAllowFrom` (`whatsapp:+<number>` or a bare number). `allowFrom`, `dmPolicy` and `defaultTo` admit senders and set default targets; they never make an approver.
 - Only a resolved approver resolves an approval, by reaction on the prompt or by `/approve`. With no resolved approver, nobody approves from WhatsApp and the Web UI stays available.
 - With `target: "dm"` the prompt goes to each approver's direct chat, and the chat the request came from gets a notice that the request went to WhatsApp DMs. Set `notifyOrigin: false` when that chat is a customer's: the approvers still get the prompt and the customer sees nothing. The prompt updates when the approval resolves or expires. If every delivery to the approvers fails, OpenClaw still sends that chat a delivery-failed notice with the `/approve` commands; only an approver can use them.
+- A plugin approval prompt holds the plugin's title and description, the reactions that answer it, and the minutes left; the approval id, severity, plugin and agent stay out, because the reaction on the prompt is bound to the approval. How it ended (approved, rejected, no answer in time) arrives as a reply quoting the prompt. Exec and system-agent prompts keep the shared format.
 - `agentFilter` and `sessionFilter` limit which requests WhatsApp handles. `approvals.exec` and `approvals.plugin` targets with `channel: "whatsapp"` still deliver through the shared forwarder, with the reaction bound to the accepted message.
 
 ## Own messages
@@ -247,8 +302,8 @@ When a business number also runs on the owner's phone, the owner sometimes types
 }
 ```
 
-- `history`: a live message the linked phone sends to another person's direct chat is kept for 24 hours as history of that chat. The next dispatched turn of that chat carries it as a platform-selected history window (`historyKind: "recent"`), at most `historyLimit` entries, and consumes it. Each entry reads as a message the account sent: `[WhatsApp +15557654321 <time>] (self): <text>`.
-- `turn`: the same history, plus one agent run in the direct session of the first WhatsApp entry of `commands.ownerAllowFrom`. The run is a room event (`InboundEventKind: "room_event"`, as an unmentioned group message under `messages.groupChat.unmentionedInbound`): the owner said it to somebody else, so the agent observes it and replies only with the `message` tool, when a reply is useful. The owner passes normal DM admission; without a WhatsApp owner the history is kept and no turn runs.
+- `history`: a live message the linked phone sends to another person's direct chat is appended to that chat's native session transcript. The assistant does not run. The transcript shows `(self): [sent manually from the linked WhatsApp phone] <text>`.
+- `turn`: the same transcript record, plus one agent run in the direct session of the first WhatsApp entry of `commands.ownerAllowFrom`. The run is a room event (`InboundEventKind: "room_event"`, as an unmentioned group message under `messages.groupChat.unmentionedInbound`): the owner said it to somebody else, so the agent observes it and replies only with the `message` tool, when a reply is useful. The owner passes normal DM admission; without a WhatsApp owner the transcript record is kept and no turn runs.
 - The owner turn's body is the message as OpenClaw writes one the account itself sent: `[WhatsApp +15557654321 <time>] (self): <text>`. Hooks read `ctx.channelContext.chat.ownMessage` (`messageId`, `peerE164`, `timestampMs`); only that field, which the plugin alone sets, marks an owner turn.
 - The ids of OpenClaw's own sends of the last 24 hours (the newest 5,000) are kept in plugin state, so an echo that arrives after a restart is still recognized.
 - Nothing is sent to the other person. Echoes of OpenClaw's own sends, offline backfill and history sync, groups, status and broadcast chats, the account's own chat, reactions, edits, deletes and poll votes are never own messages.

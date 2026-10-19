@@ -3,7 +3,7 @@ import { pruneMapToMaxSize } from "openclaw/plugin-sdk/collection-runtime";
 
 const WHATSAPP_BAILEYS_CACHE_MAX_ENTRIES = 500;
 
-type WhatsAppBaileysCacheEntry<T> = {
+export type WhatsAppBaileysCacheEntry<T> = {
   expiresAt: number;
   value: T;
 };

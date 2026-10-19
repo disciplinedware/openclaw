@@ -5,6 +5,16 @@ import { createTestWebAudioInboundMessage } from "../../inbound/test-message.tes
 const transcribeFirstAudioMock = vi.fn();
 const maybeSendAckReactionMock = vi.fn();
 
+vi.mock("../../runtime.js", async (importOriginal) => {
+  const { createMemoryPluginStateRuntime } = await import("../../plugin-state.test-helper.js");
+  const state = createMemoryPluginStateRuntime();
+  return {
+    ...(await importOriginal<typeof import("../../runtime.js")>()),
+    getWhatsAppRuntime: () => state.runtime,
+    getOptionalWhatsAppRuntime: () => state.runtime,
+  };
+});
+
 vi.mock("./audio-preflight.runtime.js", () => ({
   transcribeFirstAudio: (...args: unknown[]) => transcribeFirstAudioMock(...args),
 }));

@@ -21,7 +21,7 @@ vi.mock("openclaw/plugin-sdk/approval-gateway-runtime", () => ({
 
 const BUSINESS = "+15550000100";
 const OWNER = "+15550000200";
-const GUEST = "+15550000300";
+const CONTACT = "+15550000300";
 const PROMPT_CHAT_JID = "15550000200@s.whatsapp.net";
 const PROMPT_MESSAGE_ID = "approval-prompt";
 
@@ -73,12 +73,12 @@ describe("execApprovals config", () => {
       channels: {
         whatsapp: {
           execApprovals: { approvers: [OWNER] },
-          accounts: { other: { execApprovals: { approvers: [GUEST] } } },
+          accounts: { other: { execApprovals: { approvers: [CONTACT] } } },
         },
       },
     } as never;
     expect(getWhatsAppExecApprovalApprovers({ cfg, accountId: "default" })).toEqual([OWNER]);
-    expect(getWhatsAppExecApprovalApprovers({ cfg, accountId: "other" })).toEqual([GUEST]);
+    expect(getWhatsAppExecApprovalApprovers({ cfg, accountId: "other" })).toEqual([CONTACT]);
   });
 });
 
@@ -131,7 +131,7 @@ function reactionFrom(params: { actorJid: string; fromMe?: boolean }) {
 const E164_BY_JID: Record<string, string> = {
   "15550000100@s.whatsapp.net": BUSINESS,
   "15550000200@s.whatsapp.net": OWNER,
-  "15550000300@s.whatsapp.net": GUEST,
+  "15550000300@s.whatsapp.net": CONTACT,
 };
 
 async function react(params: {
@@ -190,7 +190,7 @@ describe("approval reactions on a prompt in the owner's DM", () => {
 
   it.each([
     { name: "business_number", actorJid: PROMPT_CHAT_JID, fromMe: true, sender: BUSINESS },
-    { name: "guest", actorJid: "15550000300@s.whatsapp.net", fromMe: false, sender: GUEST },
+    { name: "contact", actorJid: "15550000300@s.whatsapp.net", fromMe: false, sender: CONTACT },
   ])("resolves nothing for a reaction from the $name", async ({ actorJid, fromMe, sender }) => {
     const { handled, logVerboseMessage } = await react({
       config: { approvers: [OWNER] },
@@ -205,7 +205,7 @@ describe("approval reactions on a prompt in the owner's DM", () => {
     );
   });
 
-  it("resolves nothing for a guest when no approver resolves and allowFrom is a wildcard", async () => {
+  it("resolves nothing for a contact when no approver resolves and allowFrom is a wildcard", async () => {
     const { handled } = await react({ config: {}, actorJid: "15550000300@s.whatsapp.net" });
 
     expect(handled).toBe(true);

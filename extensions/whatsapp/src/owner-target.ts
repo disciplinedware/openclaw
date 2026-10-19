@@ -52,9 +52,10 @@ export async function sendToWhatsAppTarget<T>(
 
 function buildOwnerIdentityPattern(ownerE164: string): RegExp {
   const digits = ownerE164.replace(/\D/g, "");
-  // A send to the owner reaches one chat, so every LID in its results is the owner's chat id.
+  // A send to the owner reaches one chat, so every chat id in its results is the owner's: its LID,
+  // or the JID WhatsApp registered, whose digits can differ from the configured number.
   return new RegExp(
-    `(?<!\\d)\\+?${digits}(?!\\d)(?::\\d+)?(?:@s\\.whatsapp\\.net|@c\\.us)?|(?<!\\d)\\d+(?::\\d+)?@lid\\b`,
+    `(?<!\\d)\\+?${digits}(?!\\d)(?::\\d+)?(?:@s\\.whatsapp\\.net|@c\\.us)?|(?<!\\d)\\d+(?::\\d+)?@(?:lid|s\\.whatsapp\\.net)\\b`,
     "g",
   );
 }

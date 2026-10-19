@@ -11,6 +11,7 @@ import {
   WhatsAppConnectionController,
 } from "./connection-controller.js";
 import { enqueueCredsSave, writeCredsJsonAtomically } from "./creds-persistence.js";
+import { createTestWhatsAppRecipientResolver } from "./inbound/recipient-resolver.test-helper.js";
 import { createAcceptedWhatsAppSendResult } from "./inbound/send-result.test-helper.js";
 import {
   createWaSocket,
@@ -69,8 +70,10 @@ function createListenerStub(messageId = "ok") {
   return {
     sendMessage: vi.fn(async () => createAcceptedWhatsAppSendResult("text", messageId)),
     sendPoll: vi.fn(async () => createAcceptedWhatsAppSendResult("poll", messageId)),
+    editMessage: vi.fn(async () => undefined),
     sendReaction: vi.fn(async () => createAcceptedWhatsAppSendResult("reaction", messageId)),
     sendComposingTo: vi.fn(async () => {}),
+    recipients: createTestWhatsAppRecipientResolver(),
   };
 }
 

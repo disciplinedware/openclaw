@@ -18,12 +18,6 @@ import { isDirectUserJid } from "./inbound/socket-session.js";
  */
 export const WHATSAPP_OWN_MESSAGE_SENDER_LABEL = "(self)";
 
-/**
- * Leads the text of a history entry that the assistant sent to this chat from another session,
- * so the model tells it from a message typed on the phone: `(self): [sent by ...] <text>`.
- */
-export const WHATSAPP_ASSISTANT_MESSAGE_MARKER = "[sent by the assistant from another chat]";
-
 /** A message the linked phone itself sent, live, to another person's direct chat. */
 export type WhatsAppOwnMessage = {
   accountId: string;

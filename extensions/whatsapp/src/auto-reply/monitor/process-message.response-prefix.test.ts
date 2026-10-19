@@ -18,9 +18,11 @@ import {
   getWhatsAppConnectionController,
   WHATSAPP_CONNECTION_CONTROLLER_CAPABILITY,
 } from "../../connection-controller-runtime-context.js";
+import { createTestWhatsAppRecipientResolver } from "../../inbound/recipient-resolver.test-helper.js";
 import { createAcceptedWhatsAppSendResult } from "../../inbound/send-result.test-helper.js";
 import { createTestWebInboundMessage } from "../../inbound/test-message.test-helper.js";
 import type { ActiveWebListener } from "../../inbound/types.js";
+import { createMemoryPluginStateRuntime } from "../../plugin-state.test-helper.js";
 import { getWhatsAppChannelRuntime, setWhatsAppRuntime } from "../../runtime.js";
 import { processMessage } from "./process-message.js";
 
@@ -28,7 +30,11 @@ type ReplyResolver = Parameters<typeof processMessage>[0]["replyResolver"];
 
 describe("WhatsApp inbound and outbound response-prefix boundary", () => {
   beforeAll(() => {
-    setWhatsAppRuntime(createPluginRuntimeMock());
+    const runtime = createPluginRuntimeMock();
+    // The reply path reads the person's overdue answer from plugin state.
+    runtime.state.openKeyedStore = createMemoryPluginStateRuntime().runtime.state
+      .openKeyedStore as typeof runtime.state.openKeyedStore;
+    setWhatsAppRuntime(runtime);
   });
 
   it.each([
@@ -40,6 +46,8 @@ describe("WhatsApp inbound and outbound response-prefix boundary", () => {
       inboundForbidden: "[CHANNEL]",
       outboundPrefix: "[ACCOUNT]",
       quoted: true,
+      firstBody: "please answer this message",
+      secondBody: undefined,
     },
     {
       name: "unset prefix with self-chat identity",
@@ -49,6 +57,19 @@ describe("WhatsApp inbound and outbound response-prefix boundary", () => {
       inboundForbidden: "[Harbor]",
       outboundPrefix: "[Harbor]",
       quoted: false,
+      firstBody: "please answer this message",
+      secondBody: undefined,
+    },
+    {
+      name: "question followed by greeting",
+      selfChat: false,
+      channelPrefix: undefined,
+      accountPrefix: undefined,
+      inboundForbidden: "[Harbor]",
+      outboundPrefix: "",
+      quoted: false,
+      firstBody: "Когда созвон?",
+      secondBody: "Привет",
     },
   ])("$name", async (scenario) => {
     await withTempHome(
@@ -57,17 +78,19 @@ describe("WhatsApp inbound and outbound response-prefix boundary", () => {
         const self = "+12025550100";
         const peer = scenario.selfChat ? self : "+12025550101";
         const accountId = "work";
-        const body = "please answer this message";
+        const body = scenario.firstBody;
         const replyText = "the requested reply";
         const sendMessage = vi.fn<ActiveWebListener["sendMessage"]>(async () =>
           createAcceptedWhatsAppSendResult("text", "outbound-prefix-proof"),
         );
         const listener: ActiveWebListener = {
+          recipients: createTestWhatsAppRecipientResolver(),
           sendMessage,
           sendComposingTo: async () => {},
           sendPoll: async () => {
             throw new Error("Unexpected poll delivery");
           },
+          editMessage: vi.fn(async () => undefined),
           sendReaction: async () => {
             throw new Error("Unexpected reaction delivery");
           },
@@ -79,13 +102,20 @@ describe("WhatsApp inbound and outbound response-prefix boundary", () => {
         };
         const replyResolver = vi.fn<ReplyResolver>(async () => ({ text: replyText }));
         const cfg: OpenClawConfig = {
+          plugins: {
+            entries: {
+              "whatsapp-for-business": {
+                config: { blockOverdueAnswers: false },
+              },
+            },
+          },
           agents: {
             defaults: {
               workspace: path.join(root, "workspace"),
             },
             entries: { main: { identity: { name: "Harbor" } } },
           },
-          session: { dmScope: "per-channel-peer" },
+          session: { dmScope: "per-account-channel-peer" },
           channels: {
             whatsapp: {
               responsePrefix: scenario.channelPrefix,
@@ -101,8 +131,9 @@ describe("WhatsApp inbound and outbound response-prefix boundary", () => {
           },
         };
         await fs.writeFile(path.join(root, ".openclaw", "openclaw.json"), JSON.stringify(cfg));
+        const messageId = `inbound-prefix-proof-${path.basename(root)}-${scenario.name.replaceAll(" ", "-")}`;
         const msg = createTestWebInboundMessage({
-          event: { id: "inbound-prefix-proof", timestamp: 1_700_000_000_000 },
+          event: { id: messageId, timestamp: 1_700_000_000_000 },
           payload: { body, commandBody: body },
           platform: {
             chatJid: `${peer.slice(1)}@s.whatsapp.net`,
@@ -150,38 +181,80 @@ describe("WhatsApp inbound and outbound response-prefix boundary", () => {
         });
         try {
           expect(registration).not.toBeNull();
-          const sent = await processMessage({
-            cfg,
+          const messages = [
             msg,
-            route,
-            groupHistoryKey: `whatsapp:${accountId}:direct:${peer}`,
-            groupHistories: new Map(),
-            groupMemberNames: new Map(),
-            connectionId: "response-prefix-proof",
-            verbose: false,
-            maxMediaBytes: 1_000_000,
-            replyResolver,
-            replyLogger: getChildLogger({ module: "whatsapp-prefix-boundary" }),
-            backgroundTasks,
-            ackAlreadySent: true,
-          });
+            ...(scenario.secondBody
+              ? [
+                  {
+                    ...msg,
+                    event: {
+                      ...msg.event,
+                      id: `${messageId}-followup`,
+                      timestamp: 1_700_000_001_000,
+                    },
+                    payload: {
+                      ...msg.payload,
+                      body: scenario.secondBody,
+                      commandBody: scenario.secondBody,
+                    },
+                  },
+                ]
+              : []),
+          ];
+          const sentResults = [];
+          for (const inboundMsg of messages) {
+            sentResults.push(
+              await processMessage({
+                cfg,
+                msg: inboundMsg,
+                route,
+                groupHistoryKey: `whatsapp:${accountId}:direct:${peer}`,
+                groupHistories: new Map(),
+                groupMemberNames: new Map(),
+                connectionId: "response-prefix-proof",
+                verbose: false,
+                maxMediaBytes: 1_000_000,
+                replyResolver,
+                replyLogger: getChildLogger({ module: "whatsapp-prefix-boundary" }),
+                backgroundTasks,
+                ackAlreadySent: true,
+              }),
+            );
+          }
           await Promise.all(backgroundTasks);
 
-          expect(sent).toBe(true);
-          expect(replyResolver).toHaveBeenCalledOnce();
-          expect(sendMessage).toHaveBeenCalledOnce();
-          expect(sendMessage.mock.calls[0]?.[0]).toBe(peer);
-          expect(sendMessage.mock.calls[0]?.[1]).toBe(`${scenario.outboundPrefix} ${replyText}`);
-          expect(sendMessage.mock.calls[0]?.[4]).toMatchObject({ accountId });
-          const context = replyResolver.mock.calls[0]?.[0];
-          expect(context).toMatchObject({
-            RawBody: body,
-            CommandBody: body,
-            AccountId: accountId,
-            SessionKey: route.sessionKey,
-            OriginatingChannel: "whatsapp",
-            OriginatingTo: peer,
-          });
+          expect(sentResults).toEqual(messages.map(() => true));
+          expect(replyResolver.mock.calls.map(([context]) => context.RawBody)).toEqual(
+            messages.map((inboundMsg) => inboundMsg.payload.commandBody ?? inboundMsg.payload.body),
+          );
+          const contexts = replyResolver.mock.calls.map(([context]) => context);
+          expect(contexts).toHaveLength(messages.length);
+          expect(sendMessage).toHaveBeenCalledTimes(messages.length);
+          for (const call of sendMessage.mock.calls) {
+            expect(call[0]).toBe(peer);
+            expect(call[1]).toBe(
+              scenario.outboundPrefix ? `${scenario.outboundPrefix} ${replyText}` : replyText,
+            );
+            expect(call[4]).toMatchObject({ accountId });
+          }
+          for (const [index, context] of contexts.entries()) {
+            const expectedBody = index === 0 ? body : scenario.secondBody;
+            if (expectedBody === undefined) {
+              throw new Error(`Missing expected inbound body for message ${index}`);
+            }
+            expect(context).toMatchObject({
+              RawBody: expectedBody,
+              CommandBody: expectedBody,
+              AccountId: accountId,
+              SessionKey: route.sessionKey,
+              OriginatingChannel: "whatsapp",
+              OriginatingTo: peer,
+              SenderName: "Peer",
+              SenderE164: peer,
+            });
+            expect(context?.Body).toContain(expectedBody);
+          }
+          const context = contexts[0];
           if (scenario.quoted) {
             expect(context).toMatchObject({
               ReplyToId: "quoted-prefix-proof",
@@ -190,7 +263,6 @@ describe("WhatsApp inbound and outbound response-prefix boundary", () => {
             expect(context?.Body).toContain("[Replying to");
             expect(context?.Body).toContain("the original quoted message");
           }
-          expect(context?.Body).toContain(body);
           expect(context?.Body).not.toContain(scenario.inboundForbidden);
           expect(context?.Body).not.toContain("[ACCOUNT]");
         } finally {

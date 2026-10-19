@@ -16,6 +16,7 @@ import {
 import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
 import { clearInternalHooks, registerInternalHook } from "openclaw/plugin-sdk/hook-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createTestWhatsAppRecipientResolver } from "../../inbound/recipient-resolver.test-helper.js";
 import { createWebSendApi } from "../../inbound/send-api.js";
 import { normalizeWhatsAppSendResult } from "../../inbound/send-result.js";
 import { createTestWebInboundMessage } from "../../inbound/test-message.test-helper.js";
@@ -324,6 +325,7 @@ describe("WhatsApp canonical message_sent delivery", () => {
         }) as WAMessage,
     );
     const sendApi = createWebSendApi({
+      recipients: createTestWhatsAppRecipientResolver(),
       sock: {
         sendMessage,
         sendPresenceUpdate: vi.fn(async () => undefined),
@@ -441,6 +443,7 @@ describe("WhatsApp canonical message_sent delivery", () => {
         },
       } as WAMessage);
     const sendApi = createWebSendApi({
+      recipients: createTestWhatsAppRecipientResolver(),
       sock: {
         sendMessage,
         sendPresenceUpdate: vi.fn(async () => undefined),
@@ -595,6 +598,7 @@ describe("WhatsApp canonical message_sent delivery", () => {
       kind: "audio",
     });
     const sendApi = createWebSendApi({
+      recipients: createTestWhatsAppRecipientResolver(),
       sock: {
         sendMessage: vi.fn(async () => ({ key: { id: "dispatch-nested-media" } }) as WAMessage),
         sendPresenceUpdate: vi.fn(async () => undefined),

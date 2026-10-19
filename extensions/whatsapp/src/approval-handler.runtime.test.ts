@@ -1,7 +1,25 @@
-// Whatsapp tests cover approval handler plugin behavior.
+import { createChannelApprovalHandlerFromCapability } from "openclaw/plugin-sdk/approval-handler-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { whatsappApprovalNativeRuntime } from "./approval-handler.runtime.js";
+import { whatsappApprovalCapability } from "./approval-native.js";
+import { createMemoryPluginStateRuntime } from "./plugin-state.test-helper.js";
+
+const runtimeConfig = vi.hoisted(() => ({ current: {} as unknown }));
+const recordHistory = vi.hoisted(() => vi.fn(async (_message: unknown) => {}));
+
+vi.mock("./own-message-history.js", () => ({
+  recordWhatsAppAssistantMessageHistory: recordHistory,
+}));
+
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+  getRuntimeConfig: () => runtimeConfig.current,
+}));
+
+beforeEach(() => {
+  runtimeConfig.current = {};
+  recordHistory.mockReset().mockResolvedValue(undefined);
+});
 
 describe("whatsappApprovalNativeRuntime", () => {
   it("renders allowed thumbs-only reactions in pending exec approvals", async () => {
@@ -46,6 +64,253 @@ describe("whatsappApprovalNativeRuntime", () => {
     expect(payload.reactionPayload.text).not.toContain("2️⃣ Allow Always");
     expect(payload.reactionPayload.text).not.toContain("3️⃣ Deny");
     expect(payload.reactionPayload.allowedDecisions).toEqual(["allow-once", "deny"]);
+  });
+
+  it("renders a plugin approval as its approver reads it: the request, the reactions, the time left", async () => {
+    const payload = await whatsappApprovalNativeRuntime.presentation.buildPendingPayload({
+      cfg: {} as never,
+      accountId: "default",
+      context: { accountId: "default" },
+      request: {
+        id: "plugin:abc123",
+        request: { title: "Approve message?", description: "Alex wrote:\n  > Hola" },
+        createdAtMs: 0,
+        expiresAtMs: 300_000,
+      },
+      approvalKind: "plugin",
+      nowMs: 0,
+      view: {
+        approvalKind: "plugin",
+        approvalId: "plugin:abc123",
+        phase: "pending",
+        title: "Approve message?",
+        description: "Alex wrote:\n  > Hola",
+        severity: "warning",
+        pluginId: "acs",
+        agentId: "assistant",
+        metadata: [],
+        expiresAtMs: 300_000,
+        actions: [
+          {
+            decision: "allow-once",
+            label: "Allow Once",
+            command: "/approve plugin:abc123 allow-once",
+            style: "success",
+          },
+          {
+            decision: "deny",
+            label: "Deny",
+            command: "/approve plugin:abc123 deny",
+            style: "danger",
+          },
+        ],
+      } as never,
+    });
+
+    expect(payload.reactionPayload.text).toBe(
+      "Approve message?\n\nAlex wrote:\n  > Hola\n\nReact with:\n\n👍 Allow Once\n👎 Deny\n\nYou have 5 minutes to answer.",
+    );
+    expect(payload.reactionPayload.allowedDecisions).toEqual(["allow-once", "deny"]);
+  });
+
+  it("localizes Guardian approval instructions and preserves the request text", async () => {
+    runtimeConfig.current = {
+      plugins: {
+        entries: { "whatsapp-for-business": { config: { approvalLanguage: "es" } } },
+      },
+    };
+    const description = "Alex wrote:\n  > Hola";
+    const payload = await whatsappApprovalNativeRuntime.presentation.buildPendingPayload({
+      cfg: {} as never,
+      accountId: "default",
+      context: { accountId: "default" },
+      request: {
+        id: "plugin:abc123",
+        request: { title: "Approve message?", description },
+        createdAtMs: 0,
+        expiresAtMs: 60_000,
+      },
+      approvalKind: "plugin",
+      nowMs: 0,
+      view: {
+        approvalKind: "plugin",
+        approvalId: "plugin:abc123",
+        phase: "pending",
+        title: "Approve message?",
+        description,
+        severity: "warning",
+        pluginId: "acs",
+        agentId: "assistant",
+        metadata: [],
+        expiresAtMs: 60_000,
+        actions: [
+          {
+            decision: "allow-once",
+            label: "Allow Once",
+            command: "/approve plugin:abc123 allow-once",
+            style: "success",
+          },
+          {
+            decision: "deny",
+            label: "Deny",
+            command: "/approve plugin:abc123 deny",
+            style: "danger",
+          },
+        ],
+      } as never,
+    });
+
+    expect(payload.reactionPayload.text).toBe(
+      `¿Enviar mensaje?\n\n${description}\n\nReacciona con:\n\n👍 Enviar\n👎 Rechazar\n\nTienes 1 minuto para responder.`,
+    );
+    expect(payload.reactionPayload.allowedDecisions).toEqual(["allow-once", "deny"]);
+  });
+
+  it("preserves an unknown plugin approval title and description in Spanish", async () => {
+    runtimeConfig.current = {
+      plugins: {
+        entries: { "whatsapp-for-business": { config: { approvalLanguage: "es" } } },
+      },
+    };
+    const title = "Approve the account setting?";
+    const description = "The plugin requests permission to change the setting.";
+    const payload = await whatsappApprovalNativeRuntime.presentation.buildPendingPayload({
+      cfg: {} as never,
+      accountId: "default",
+      context: { accountId: "default" },
+      request: {
+        id: "plugin:abc123",
+        request: { title, description },
+        createdAtMs: 0,
+        expiresAtMs: 60_000,
+      },
+      approvalKind: "plugin",
+      nowMs: 0,
+      view: {
+        approvalKind: "plugin",
+        approvalId: "plugin:abc123",
+        phase: "pending",
+        title,
+        description,
+        severity: "warning",
+        pluginId: "example-plugin",
+        agentId: "assistant",
+        metadata: [],
+        expiresAtMs: 60_000,
+        actions: [
+          {
+            decision: "allow-once",
+            label: "Allow Once",
+            command: "/approve plugin:abc123 allow-once",
+            style: "success",
+          },
+          {
+            decision: "deny",
+            label: "Deny",
+            command: "/approve plugin:abc123 deny",
+            style: "danger",
+          },
+        ],
+      } as never,
+    });
+
+    expect(payload.reactionPayload.text).toBe(
+      `${title}\n\n${description}\n\nReacciona con:\n\n👍 Aprobar una vez\n👎 Rechazar\n\nTienes 1 minuto para responder.`,
+    );
+    expect(payload.reactionPayload.allowedDecisions).toEqual(["allow-once", "deny"]);
+  });
+
+  it.each([
+    ["allow-once", "✅ Approved."],
+    ["deny", "❌ Not run."],
+  ] as const)("tells how a plugin approval ended: %s", async (decision, text) => {
+    const result = await whatsappApprovalNativeRuntime.presentation.buildResolvedResult({
+      request: { id: "plugin:abc123" },
+      resolved: { id: "plugin:abc123", decision },
+      view: { approvalKind: "plugin" },
+    } as never);
+
+    expect(result).toEqual({
+      kind: "update",
+      payload: { text, deliveryPending: decision !== "deny" },
+    });
+  });
+
+  it.each([
+    ["allow-once", "✅ Aprobado."],
+    ["allow-always", "✅ Aprobado; no volveré a preguntar."],
+    ["deny", "❌ No se ejecutó."],
+  ] as const)("localizes a plugin approval outcome: %s", async (decision, text) => {
+    runtimeConfig.current = {
+      plugins: {
+        entries: { "whatsapp-for-business": { config: { approvalLanguage: "es" } } },
+      },
+    };
+    const result = await whatsappApprovalNativeRuntime.presentation.buildResolvedResult({
+      request: { id: "plugin:abc123" },
+      resolved: { id: "plugin:abc123", decision },
+      view: { approvalKind: "plugin" },
+    } as never);
+
+    expect(result).toEqual({
+      kind: "update",
+      payload: { text, deliveryPending: decision !== "deny" },
+    });
+  });
+
+  it("tells that a plugin approval expired", async () => {
+    const result = await whatsappApprovalNativeRuntime.presentation.buildExpiredResult({
+      request: { id: "plugin:abc123" },
+      view: { approvalKind: "plugin" },
+    } as never);
+
+    expect(result).toEqual({
+      kind: "update",
+      payload: { text: "⏱️ Approval expired: not run. Request a new proposal to continue." },
+    });
+  });
+
+  it.each(["approved", "denied", "expired"])(
+    "keeps the proposal only when approved: %s",
+    async (outcome) => {
+      const description =
+        "Jordan · +15550003333\nPedido: A-100\nRespuesta:\nHola 🌵\nSegunda línea";
+      const params = {
+        request: { id: "plugin:retained" },
+        resolved: { id: "plugin:retained", decision: outcome === "denied" ? "deny" : "allow-once" },
+        view: { approvalKind: "plugin", description },
+      };
+      const result =
+        outcome === "expired"
+          ? await whatsappApprovalNativeRuntime.presentation.buildExpiredResult(params as never)
+          : await whatsappApprovalNativeRuntime.presentation.buildResolvedResult(params as never);
+      expect(result).toMatchObject({ kind: "update" });
+      if (outcome === "approved") {
+        expect((result as { payload: { text: string } }).payload.text).toContain(description);
+      } else {
+        expect((result as { payload: { text: string } }).payload.text).not.toContain(description);
+      }
+      expect((result as { payload: { text: string } }).payload.text).not.toContain("React with");
+    },
+  );
+
+  it("localizes an expired plugin approval", async () => {
+    runtimeConfig.current = {
+      plugins: {
+        entries: { "whatsapp-for-business": { config: { approvalLanguage: "es" } } },
+      },
+    };
+    const result = await whatsappApprovalNativeRuntime.presentation.buildExpiredResult({
+      request: { id: "plugin:abc123" },
+      view: { approvalKind: "plugin" },
+    } as never);
+
+    expect(result).toEqual({
+      kind: "update",
+      payload: {
+        text: "⏱️ La aprobación caducó: no se ejecutó. Solicita una nueva propuesta para continuar.",
+      },
+    });
   });
 
   it("normalizes WhatsApp targets and carries account ids into prepared delivery", async () => {
@@ -135,6 +400,7 @@ it("waits for native reaction binding and cleanup completion", async () => {
     to: "+15551230000",
     remoteJid: "15551230000@s.whatsapp.net",
     messageId: "approval-message",
+    text: "Approve message?",
   };
   const request = {
     id: "exec-pending",
@@ -206,4 +472,180 @@ it("waits for native reaction binding and cleanup completion", async () => {
     register.mockRestore();
     unregister.mockRestore();
   }
+});
+
+describe("whatsappApprovalNativeRuntime delivery", () => {
+  it.each([false, true])(
+    "unbinds the old prompt before updating and binds a fresh replacement, edit failure %s",
+    async (fails) => {
+      const runtime = await import("./runtime.js");
+      const reactions = await import("./approval-reactions.js");
+      const state = createMemoryPluginStateRuntime();
+      vi.spyOn(runtime, "getWhatsAppRuntime").mockReturnValue(state.runtime as never);
+      vi.spyOn(runtime, "getOptionalWhatsAppRuntime").mockReturnValue(state.runtime as never);
+      reactions.clearWhatsAppApprovalReactionTargetsForTest();
+      const send = await import("./send.js");
+      const remoteJid = "15550000200@s.whatsapp.net";
+      let serial = 0;
+      vi.spyOn(send, "sendMessageWhatsApp").mockImplementation(
+        async () => ({ messageId: `prompt-${++serial}`, toJid: remoteJid }) as never,
+      );
+      vi.spyOn(send, "sendTypingWhatsApp").mockResolvedValue(undefined);
+      const target = (messageId: string) =>
+        reactions.resolveWhatsAppApprovalReactionTargetWithPersistence({
+          accountId: "default",
+          remoteJid,
+          messageId,
+          reactionKey: "👍",
+        });
+      const remove = vi
+        .spyOn(send, "editMessageWhatsApp")
+        .mockImplementation(async (_chat, messageId) => {
+          expect(await target(messageId)).toBeNull();
+          if (fails) {
+            throw new Error("edit unavailable");
+          }
+        });
+      const cfg = {
+        commands: { ownerAllowFrom: ["whatsapp:+15550000200"] },
+        channels: { whatsapp: { execApprovals: {} } },
+      };
+      const handler = await createChannelApprovalHandlerFromCapability({
+        capability: whatsappApprovalCapability,
+        cfg,
+        accountId: "default",
+        context: { accountId: "default" },
+        channel: "whatsapp",
+        channelLabel: "WhatsApp",
+        label: "test/whatsapp",
+        clientDisplayName: "WhatsApp test",
+      });
+      const request = (id: string) => ({
+        id,
+        createdAtMs: Date.now(),
+        expiresAtMs: Date.now() + 60_000,
+        request: {
+          title: "Approve message?",
+          description: "Reply",
+          allowedDecisions: ["allow-once", "deny"] as const,
+          turnSourceChannel: "whatsapp",
+          turnSourceTo: "+15550000300",
+          turnSourceAccountId: "default",
+        },
+      });
+      try {
+        expect(handler).not.toBeNull();
+        await handler!.handleRequested(request("plugin:old"));
+        expect(await target("prompt-1")).toMatchObject({ approvalId: "plugin:old" });
+        await handler!.handleResolved({ id: "plugin:old", decision: "deny", ts: Date.now() });
+        expect(remove).toHaveBeenCalledOnce();
+        expect(await target("prompt-1")).toBeNull();
+        await handler!.handleRequested(request("plugin:new"));
+        expect(await target(`prompt-${fails ? 3 : 2}`)).toMatchObject({ approvalId: "plugin:new" });
+        expect(await target("prompt-1")).toBeNull();
+      } finally {
+        await handler?.stop();
+        reactions.clearWhatsAppApprovalReactionTargetsForTest();
+        vi.restoreAllMocks();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "retains a completed proposal and reports its outcome, with edit failure %s",
+    async (fails) => {
+      const send = await import("./send.js");
+      const remove = vi.spyOn(send, "editMessageWhatsApp");
+      if (fails) {
+        remove.mockRejectedValue(new Error("edit unavailable"));
+      } else {
+        remove.mockResolvedValue(undefined);
+      }
+      const notify = vi
+        .spyOn(send, "sendMessageWhatsApp")
+        .mockResolvedValue({ messageId: "status-1", toJid: "15550000200@s.whatsapp.net" });
+      const runtime = await import("./runtime.js");
+      vi.spyOn(runtime, "getWhatsAppRuntime").mockReturnValue({
+        logging: { shouldLogVerbose: () => false },
+      } as never);
+      const entry = {
+        accountId: "default",
+        to: "+15550000200",
+        remoteJid: "15550000200@s.whatsapp.net",
+        messageId: "old",
+        text: "Old proposal",
+      };
+      try {
+        await whatsappApprovalNativeRuntime.transport.updateEntry!({
+          cfg: {},
+          entry,
+          payload: { text: "✅ Approved." },
+        } as never);
+        expect(remove).toHaveBeenCalledExactlyOnceWith(entry.remoteJid, "old", "✅ Approved.", {
+          cfg: {},
+          accountId: "default",
+        });
+        expect(notify).toHaveBeenCalledTimes(fails ? 1 : 0);
+        if (fails) {
+          expect(notify).toHaveBeenCalledWith(
+            entry.to,
+            "✅ Approved.",
+            expect.objectContaining({ quotedMessageKey: expect.objectContaining({ id: "old" }) }),
+          );
+        }
+      } finally {
+        vi.restoreAllMocks();
+      }
+    },
+  );
+
+  it("quotes the retained prompt when editing is unavailable", async () => {
+    const send = await import("./send.js");
+    vi.spyOn(send, "editMessageWhatsApp").mockRejectedValue(new Error("edit unavailable"));
+    const sendMessage = vi
+      .spyOn(send, "sendMessageWhatsApp")
+      .mockResolvedValue({ messageId: "prompt-1", toJid: "15550000200@s.whatsapp.net" } as never);
+    vi.spyOn(send, "sendTypingWhatsApp").mockResolvedValue(undefined as never);
+    const runtime = await import("./runtime.js");
+    vi.spyOn(runtime, "getWhatsAppRuntime").mockReturnValue({
+      logging: { shouldLogVerbose: () => false },
+    } as never);
+    const { transport } = whatsappApprovalNativeRuntime;
+
+    const entry = await transport.deliverPending({
+      cfg: {} as never,
+      preparedTarget: { to: "+15550000200", accountId: "default" },
+      pendingPayload: { reactionPayload: { text: "Approve message?", allowedDecisions: [] } },
+      request: {
+        id: "plugin:source",
+        request: { sessionKey: "agent:main:whatsapp:default:direct:+15550000300" },
+      },
+    } as never);
+    await transport.updateEntry?.({
+      cfg: {} as never,
+      entry,
+      payload: { text: "✅ Approved." },
+    } as never);
+
+    expect(sendMessage).toHaveBeenLastCalledWith(
+      "+15550000200",
+      "✅ Approved.",
+      expect.objectContaining({
+        quotedMessageKey: expect.objectContaining({
+          id: "prompt-1",
+          messageText: "Approve message?",
+        }),
+      }),
+    );
+    expect(recordHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "whatsapp_system",
+        peerE164: "+15550000200",
+        messageId: "prompt-1",
+        text: "Approve message?\n\n[Source conversation: agent:main:whatsapp:default:direct:+15550000300]",
+      }),
+    );
+    expect(sendMessage.mock.calls[0]?.[1]).toBe("Approve message?");
+    vi.restoreAllMocks();
+  });
 });

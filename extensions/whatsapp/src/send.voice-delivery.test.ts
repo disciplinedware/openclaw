@@ -8,6 +8,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
 import { MEDIA_FFMPEG_MAX_AUDIO_DURATION_SECS } from "openclaw/plugin-sdk/media-runtime";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestWhatsAppRecipientResolver } from "./inbound/recipient-resolver.test-helper.js";
 import { createWebSendApi } from "./inbound/send-api.js";
 import { createAcceptedWhatsAppSendResult } from "./inbound/send-result.test-helper.js";
 import type { ActiveWebListener } from "./inbound/types.js";
@@ -69,6 +70,7 @@ describe("WhatsApp gateway voice delivery", () => {
   const sendComposingTo = vi.fn(async () => {});
   const sendMessage = vi.fn(async () => createAcceptedWhatsAppSendResult("text", "msg123"));
   const sendPoll = vi.fn(async () => createAcceptedWhatsAppSendResult("poll", "poll123"));
+  const editMessage = vi.fn(async () => undefined);
   const sendReaction = vi.fn(async () =>
     createAcceptedWhatsAppSendResult("reaction", "reaction123"),
   );
@@ -85,9 +87,11 @@ describe("WhatsApp gateway voice delivery", () => {
       .mockImplementation(async (mediaUrl: string) => await loadWebMediaMock(mediaUrl));
     hoisted.controllerListeners.clear();
     hoisted.controllerListeners.set("default", {
+      recipients: createTestWhatsAppRecipientResolver(),
       sendComposingTo,
       sendMessage,
       sendPoll,
+      editMessage,
       sendReaction,
     });
   });
@@ -127,6 +131,7 @@ describe("WhatsApp gateway voice delivery", () => {
         },
       } as WAMessage);
     const sendApi = createWebSendApi({
+      recipients: createTestWhatsAppRecipientResolver(),
       sock: {
         sendMessage: providerSendMessage,
         sendPresenceUpdate: vi.fn(async () => undefined),
@@ -138,9 +143,11 @@ describe("WhatsApp gateway voice delivery", () => {
         await sendApi.sendMessage(to, text, mediaBuffer, mediaType, options),
     );
     hoisted.controllerListeners.set("default", {
+      recipients: createTestWhatsAppRecipientResolver(),
       sendComposingTo,
       sendMessage: listenerSendMessage,
       sendPoll,
+      editMessage: vi.fn(async () => undefined),
       sendReaction,
     });
     const onDeliveryResult = vi.fn();
