@@ -7,10 +7,12 @@ export function createMemoryPluginStateRuntime(now: () => number = Date.now) {
 
   const openKeyedStore = <T>(options: {
     namespace: string;
-    maxEntries: number;
+    maxEntries?: number;
     defaultTtlMs?: number;
+    retention?: "retained";
   }) => {
-    if (!Number.isInteger(options.maxEntries) || options.maxEntries < 1) {
+    const maxEntries = options.maxEntries ?? Number.POSITIVE_INFINITY;
+    if (options.retention !== "retained" && (!Number.isInteger(maxEntries) || maxEntries < 1)) {
       throw new Error("plugin state maxEntries must be an integer >= 1");
     }
     const entries = namespaces.get(options.namespace) ?? new Map<string, Entry>();
@@ -40,7 +42,7 @@ export function createMemoryPluginStateRuntime(now: () => number = Date.now) {
           createdAt: now(),
           ...(ttlMs !== undefined ? { expiresAt: now() + ttlMs } : {}),
         });
-        while (entries.size > options.maxEntries) {
+        while (entries.size > maxEntries) {
           const oldest = entries.keys().next().value;
           if (oldest === undefined) {
             break;
@@ -48,9 +50,36 @@ export function createMemoryPluginStateRuntime(now: () => number = Date.now) {
           entries.delete(oldest);
         }
       },
+      async registerIfAbsent(key: string, value: T, opts?: { ttlMs?: number }) {
+        const validated = validKey(key);
+        if (live(validated)) {
+          return false;
+        }
+        const ttlMs = opts?.ttlMs ?? options.defaultTtlMs;
+        entries.set(validated, {
+          value: structuredClone(value),
+          createdAt: now(),
+          ...(ttlMs !== undefined ? { expiresAt: now() + ttlMs } : {}),
+        });
+        while (entries.size > maxEntries) {
+          const oldest = entries.keys().next().value;
+          if (oldest === undefined) {
+            break;
+          }
+          entries.delete(oldest);
+        }
+        return true;
+      },
       async lookup(key: string): Promise<T | undefined> {
         // SAFETY: a namespace's values are written only by register(), which takes T.
         return structuredClone(live(validKey(key))?.value) as T | undefined;
+      },
+      async consume(key: string): Promise<T | undefined> {
+        const validated = validKey(key);
+        // SAFETY: this namespace's register operations store values of T.
+        const value = structuredClone(live(validated)?.value) as T | undefined;
+        entries.delete(validated);
+        return value;
       },
       async delete(key: string) {
         return entries.delete(validKey(key));
@@ -72,6 +101,12 @@ export function createMemoryPluginStateRuntime(now: () => number = Date.now) {
   return {
     runtime: {
       state: { openKeyedStore },
+      channel: {
+        session: {
+          resolveStorePath: () => "/tmp/whatsapp-plugin-test-sessions.json",
+          recordSessionMetaFromInbound: async () => ({ sessionId: "whatsapp-plugin-test-session" }),
+        },
+      },
       logging: {
         shouldLogVerbose: () => false,
         getChildLogger: () => ({ warn: () => {}, info: () => {}, error: () => {} }),

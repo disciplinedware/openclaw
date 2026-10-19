@@ -14,6 +14,7 @@ import { maybeResolveWhatsAppQuestionReaction } from "../question-reactions.js";
 import { cacheInboundMessageMeta } from "../quoted-message.js";
 import { formatError } from "../session.js";
 import { requireWhatsAppInboundAdmission } from "./admission.js";
+import { createWhatsAppAnswerTracker } from "./answer-tracking.js";
 import {
   createWhatsAppDurableInboundQueue,
   createWhatsAppDurableInboundMessageId,
@@ -183,6 +184,12 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
     }
     await maybeMarkInboundAsRead(target);
   };
+  const answerTracker = createWhatsAppAnswerTracker({
+    accountId: options.accountId,
+    getRuntimeConfig: () => options.loadConfig?.() ?? options.cfg,
+    resolveInboundJid,
+    parseTimestampSeconds: parseWhatsAppTimestampSeconds,
+  });
   const messageDebouncer = createWhatsAppInboundMessageDebouncer({
     resolveDebounceMs: () =>
       resolveInboundDebounceMs({
@@ -194,6 +201,7 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
     // An owner turn stays one message: batching would merge it with the owner's own messages and drop its ownMessage facts.
     shouldDebounce: (msg) => !msg.ownMessage && (options.shouldDebounce?.(msg) ?? true),
     markRead: maybeMarkInboundAsRead,
+    readOverdueAnswer: (entries) => answerTracker.readOverdueAnswer(entries[0]),
     onPendingWorkChanged: publishPendingWorkState,
     onError: (error) => {
       inboundLogger.error({ error: String(error) }, "failed handling inbound web message");
@@ -201,7 +209,19 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
     },
   });
 
-  const shouldSkipStaleAppend = (msg: WAMessage, upsertType: string | undefined): boolean => {
+  let skippedStaleGroupAppendCount = 0;
+  const logSkippedStaleGroupAppend = (inbound: WhatsAppNormalizedInboundMessage) => {
+    skippedStaleGroupAppendCount += 1;
+    const sent =
+      inbound.messageTimestampMs !== undefined
+        ? new Date(inbound.messageTimestampMs).toISOString()
+        : "unknown";
+    const message = `whatsapp: skipped group message missed while offline account=${options.accountId} group=${inbound.remoteJid} sent=${sent} (${skippedStaleGroupAppendCount} skipped since start)`;
+    inboundLogger.info({ accountId: options.accountId }, message);
+    inboundConsoleLog.info(message);
+  };
+
+  const isStaleAppend = (msg: WAMessage, upsertType: string | undefined): boolean => {
     if (upsertType !== "append") {
       return false;
     }
@@ -385,6 +405,7 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
         },
       );
     }
+    await answerTracker.recordPersonMessage(inboundMessage);
     await messageDebouncer.enqueue(inboundMessage);
   };
 
@@ -437,6 +458,7 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
     if (await resolveApprovalReaction(msg)) {
       return "completed";
     }
+    await answerTracker.recordLinkedDeviceAnswer(msg, context.receivedAt);
     const ownMessageResult = await handleOwnMessage(msg, context, lifecycle);
     if (ownMessageResult) {
       return ownMessageResult;
@@ -461,12 +483,13 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
     ) {
       return "completed";
     }
-    const readReceipt = buildReadReceiptTarget(inbound);
-    const deliveryReadReceipt = inbound.access.isSelfChat ? undefined : readReceipt;
-    if (context.skipStaleAppend === true) {
-      await maybeMarkNonSelfChatReadReceipt(inbound, readReceipt);
+    if (context.staleAppend === true && inbound.group) {
+      // Group backfill gets no turn, so it is left unread for the phone.
+      logSkippedStaleGroupAppend(inbound);
       return "completed";
     }
+    const readReceipt = buildReadReceiptTarget(inbound);
+    const deliveryReadReceipt = inbound.access.isSelfChat ? undefined : readReceipt;
 
     const enriched = await enrichWhatsAppInboundMessage({
       msg,
@@ -526,7 +549,7 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
       }
 
       const receivedAt = Date.now();
-      const skipStaleAppend = shouldSkipStaleAppend(msg, upsert.type);
+      const staleAppend = isStaleAppend(msg, upsert.type);
       const skipRecentOutboundEcho = shouldSkipRecentOutboundEcho(msg);
       const remoteJid = msg.key?.remoteJid;
       const id = msg.key?.id;
@@ -562,7 +585,7 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
           {
             message: msg,
             upsertType: upsert.type,
-            skipStaleAppend,
+            staleAppend,
             skipRecentOutboundEcho,
             receivedAt,
             receiveOrder,
@@ -584,7 +607,17 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
       if (result.kind === "durable" && result.queueResult.kind === "completed") {
         finishPreparation(undefined);
         const inbound = await normalizeInboundMessage(msg);
-        if (inbound) {
+        // A redelivery has no turn of its own. A skipped group backfill stays unread, and so does a
+        // direct message while the person's answer is overdue.
+        if (
+          inbound &&
+          !(inbound.group && staleAppend) &&
+          !(await answerTracker.readOverdueAnswer({
+            admission: inbound.access.admission,
+            event: {},
+            platform: { senderE164: inbound.senderE164 ?? undefined },
+          }))
+        ) {
           await maybeMarkNonSelfChatReadReceipt(inbound, buildReadReceiptTarget(inbound));
         }
       } else if (result.kind === "durable" && result.queueResult.kind === "accepted") {

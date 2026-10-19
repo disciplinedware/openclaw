@@ -1,4 +1,3 @@
-// Whatsapp tests cover send plugin behavior.
 import crypto from "node:crypto";
 import fsSync from "node:fs";
 import os from "node:os";
@@ -8,6 +7,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
 import { redactIdentifier } from "openclaw/plugin-sdk/logging-core";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestWhatsAppRecipientResolver } from "./inbound/recipient-resolver.test-helper.js";
 import { createAcceptedWhatsAppSendResult } from "./inbound/send-result.test-helper.js";
 import type { ActiveWebListener } from "./inbound/types.js";
 
@@ -20,6 +20,7 @@ const loadWebMediaMock = vi.fn();
 let sendMessageWhatsApp: typeof import("./send.js").sendMessageWhatsApp;
 let sendWhatsAppUploadFile: typeof import("./send.js").sendWhatsAppUploadFile;
 let sendPollWhatsApp: typeof import("./send.js").sendPollWhatsApp;
+let editMessageWhatsApp: typeof import("./send.js").editMessageWhatsApp;
 let sendReactionWhatsApp: typeof import("./send.js").sendReactionWhatsApp;
 let sendTypingWhatsApp: typeof import("./send.js").sendTypingWhatsApp;
 let resetLogger: typeof import("openclaw/plugin-sdk/runtime-env").resetLogger;
@@ -70,6 +71,7 @@ describe("web outbound", () => {
   const sendComposingTo = vi.fn(async () => {});
   const sendMessage = vi.fn(async () => createAcceptedWhatsAppSendResult("text", "msg123"));
   const sendPoll = vi.fn(async () => createAcceptedWhatsAppSendResult("poll", "poll123"));
+  const editMessage = vi.fn(async () => undefined);
   const sendReaction = vi.fn(async () =>
     createAcceptedWhatsAppSendResult("reaction", "reaction123"),
   );
@@ -79,6 +81,7 @@ describe("web outbound", () => {
       sendMessageWhatsApp,
       sendWhatsAppUploadFile,
       sendPollWhatsApp,
+      editMessageWhatsApp,
       sendReactionWhatsApp,
       sendTypingWhatsApp,
     } = await import("./send.js"));
@@ -114,9 +117,11 @@ describe("web outbound", () => {
     );
     hoisted.controllerListeners.clear();
     hoisted.controllerListeners.set("default", {
+      recipients: createTestWhatsAppRecipientResolver(),
       sendComposingTo,
       sendMessage,
       sendPoll,
+      editMessage,
       sendReaction,
     });
   });
@@ -229,10 +234,12 @@ describe("web outbound", () => {
       throw new Error("WhatsApp reachout timelock is active");
     });
     hoisted.controllerListeners.set("default", {
+      recipients: createTestWhatsAppRecipientResolver(),
       assertSendReady,
       sendComposingTo,
       sendMessage,
       sendPoll,
+      editMessage,
       sendReaction,
     });
 
@@ -295,9 +302,11 @@ describe("web outbound", () => {
   it("uses configured defaultAccount when outbound accountId is omitted", async () => {
     hoisted.controllerListeners.clear();
     hoisted.controllerListeners.set("work", {
+      recipients: createTestWhatsAppRecipientResolver(),
       sendComposingTo,
       sendMessage,
       sendPoll,
+      editMessage,
       sendReaction,
     });
 
@@ -372,10 +381,12 @@ describe("web outbound", () => {
       throw new Error("WhatsApp reachout timelock is active");
     });
     hoisted.controllerListeners.set("default", {
+      recipients: createTestWhatsAppRecipientResolver(),
       assertSendReady,
       sendComposingTo,
       sendMessage,
       sendPoll,
+      editMessage,
       sendReaction,
     });
 
@@ -392,10 +403,12 @@ describe("web outbound", () => {
   it("skips standalone newsletter typing without readiness checks", async () => {
     const assertSendReady = vi.fn(async () => undefined);
     hoisted.controllerListeners.set("default", {
+      recipients: createTestWhatsAppRecipientResolver(),
       assertSendReady,
       sendComposingTo,
       sendMessage,
       sendPoll,
+      editMessage,
       sendReaction,
     });
 
@@ -825,9 +838,11 @@ describe("web outbound", () => {
 
   it("uses account-aware WhatsApp media caps for outbound uploads", async () => {
     hoisted.controllerListeners.set("work", {
+      recipients: createTestWhatsAppRecipientResolver(),
       sendComposingTo,
       sendMessage,
       sendPoll,
+      editMessage,
       sendReaction,
     });
     loadWebMediaMock.mockResolvedValueOnce({
@@ -934,10 +949,12 @@ describe("web outbound", () => {
       throw new Error("WhatsApp reachout timelock is active");
     });
     hoisted.controllerListeners.set("default", {
+      recipients: createTestWhatsAppRecipientResolver(),
       assertSendReady,
       sendComposingTo,
       sendMessage,
       sendPoll,
+      editMessage,
       sendReaction,
     });
 
@@ -991,6 +1008,38 @@ describe("web outbound", () => {
     expect(content).not.toContain(`"to":"+1555"`);
     expect(content).not.toContain(`"jid":"1555@s.whatsapp.net"`);
     expect(content).not.toContain("Lunch?");
+  });
+
+  it("edits the exact message through the selected account", async () => {
+    const selectedEdit = vi.fn(async () => undefined);
+    const ready = vi.fn(async () => undefined);
+    hoisted.controllerListeners.set("business", {
+      ...hoisted.controllerListeners.get("default")!,
+      editMessage: selectedEdit,
+      assertSendReady: ready,
+    });
+    await editMessageWhatsApp("1555@s.whatsapp.net", "approval-1", "Approved\nExact reply", {
+      cfg: { channels: { whatsapp: { accounts: { business: {} } } } },
+      accountId: "business",
+    });
+    expect(ready).toHaveBeenCalledExactlyOnceWith("1555@s.whatsapp.net");
+    expect(selectedEdit).toHaveBeenCalledExactlyOnceWith(
+      "1555@s.whatsapp.net",
+      "approval-1",
+      "Approved\nExact reply",
+    );
+    expect(editMessage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("propagates editing failure without sending another message", async () => {
+    editMessage.mockRejectedValueOnce(new Error("edit unavailable"));
+    await expect(
+      editMessageWhatsApp("1555@s.whatsapp.net", "approval-1", "Approved", {
+        cfg: WHATSAPP_TEST_CFG,
+      }),
+    ).rejects.toThrow("edit unavailable");
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("sends reactions via active listener", async () => {

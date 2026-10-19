@@ -1,7 +1,10 @@
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
   buildChannelOutboundSessionRoute,
   type ChannelOutboundSessionRouteParams,
 } from "openclaw/plugin-sdk/core";
+import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
+import { listWhatsAppAccountIds } from "./account-ids.js";
 import { resolveWhatsAppGroupSessionKey } from "./group-session-key.js";
 import {
   isWhatsAppGroupJid,
@@ -41,4 +44,38 @@ export function resolveWhatsAppOutboundSessionRoute(params: ChannelOutboundSessi
         }),
       }
     : route;
+}
+
+/** The session key, lowercased, of one person's direct chat on one account, as inbound routes it. */
+export function resolveWhatsAppDirectSessionKey(params: {
+  cfg: OpenClawConfig;
+  accountId: string;
+  peerE164: string;
+}): string {
+  return resolveAgentRoute({
+    cfg: params.cfg,
+    channel: "whatsapp",
+    accountId: params.accountId,
+    peer: { kind: "direct", id: params.peerE164 },
+  }).sessionKey.toLowerCase();
+}
+
+/** The accounts on which `sessionKey` is the owner's direct chat. */
+export function listWhatsAppOwnerSessionAccounts(params: {
+  cfg: OpenClawConfig;
+  sessionKey: string | undefined;
+  ownerE164: string;
+}): string[] {
+  const sessionKey = params.sessionKey?.trim().toLowerCase();
+  if (!sessionKey) {
+    return [];
+  }
+  return listWhatsAppAccountIds(params.cfg).filter(
+    (accountId) =>
+      resolveWhatsAppDirectSessionKey({
+        cfg: params.cfg,
+        accountId,
+        peerE164: params.ownerE164,
+      }) === sessionKey,
+  );
 }

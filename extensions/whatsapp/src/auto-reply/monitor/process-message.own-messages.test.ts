@@ -5,6 +5,8 @@ import { createTestWebInboundMessage } from "../../inbound/test-message.test-hel
 const mocks = vi.hoisted(() => ({
   resolvePolicy: vi.fn(),
   prepared: vi.fn(),
+  replyPlan: vi.fn(),
+  appendTranscript: vi.fn(async () => ({ kind: "result" as const })),
   namespaces: new Map<string, Map<string, unknown>>(),
 }));
 
@@ -37,6 +39,7 @@ vi.mock("./inbound-dispatch.js", async (importOriginal) => {
       return prepared;
     },
     createWhatsAppReplyPlan: (params: { replyResolver?: unknown }) => ({
+      ...(mocks.replyPlan(params) as object),
       dispatcherOptions: {},
       delivery: { deliver: async () => {} },
       replyOptions: {},
@@ -47,6 +50,17 @@ vi.mock("./inbound-dispatch.js", async (importOriginal) => {
     updateWhatsAppMainLastRoute: () => {},
   };
 });
+
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+  getRuntimeConfig: () => ({
+    session: { dmScope: "per-account-channel-peer" },
+    channels: { whatsapp: {} },
+  }),
+}));
+vi.mock("openclaw/plugin-sdk/session-transcript-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/session-transcript-runtime")>()),
+  appendSessionTranscriptMessageByIdentityStrict: mocks.appendTranscript,
+}));
 
 vi.mock("./ack-reaction.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./ack-reaction.js")>()),
@@ -76,7 +90,12 @@ vi.mock("./runtime-api.js", async (importOriginal) => ({
 }));
 
 import {
-  listWhatsAppOwnMessageHistory,
+  readWhatsAppOverdueAnswer,
+  recordWhatsAppAnswer,
+  recordWhatsAppTurnSend,
+  recordWhatsAppUnansweredMessage,
+} from "../../overdue-answers.js";
+import {
   recordWhatsAppAssistantMessageHistory,
   recordWhatsAppOwnMessageHistory,
 } from "../../own-message-history.js";
@@ -84,16 +103,16 @@ import { processMessage } from "./process-message.js";
 
 const SELF = "+15550000100";
 const OWNER = "+15550000200";
-const GUEST = "+15550000300";
-const GUEST_JID = "15550000300@s.whatsapp.net";
+const CONTACT = "+15550000300";
+const CONTACT_JID = "15550000300@s.whatsapp.net";
 
 function policy(account: Record<string, unknown>) {
   return {
     account: { accountId: "default", authDir: "/tmp/wa-test-auth", ...account },
     dmPolicy: "allowlist",
     groupPolicy: "disabled",
-    configuredAllowFrom: [OWNER, GUEST],
-    dmAllowFrom: [OWNER, GUEST],
+    configuredAllowFrom: [OWNER, CONTACT],
+    dmAllowFrom: [OWNER, CONTACT],
     groupAllowFrom: [],
     isSelfChat: false,
     providerMissingFallbackApplied: false,
@@ -135,23 +154,24 @@ async function runTurn(
   options: {
     dispatchReplyFromConfig?: Parameters<typeof processMessage>[0]["dispatchReplyFromConfig"];
     historyLimit?: number;
+    cfg?: Record<string, unknown>;
   } = {},
 ) {
   const backgroundTasks = new Set<Promise<unknown>>();
   const peer = msg.admission.conversation.id;
   const turn = processMessage({
-    cfg: {} as never,
+    cfg: (options.cfg ?? {}) as never,
     msg: msg as never,
     route: {
-      agentId: "concierge",
+      agentId: "assistant",
       channel: "whatsapp",
       accountId: "default",
-      sessionKey: `agent:concierge:whatsapp:direct:${peer}`,
-      mainSessionKey: "agent:concierge:main",
+      sessionKey: `agent:assistant:whatsapp:direct:${peer}`,
+      mainSessionKey: "agent:assistant:main",
       lastRoutePolicy: "session",
       matchedBy: "default",
     } as never,
-    groupHistoryKey: `agent:concierge:whatsapp:direct:${peer}`,
+    groupHistoryKey: `agent:assistant:whatsapp:direct:${peer}`,
     groupHistoryLimit: options.historyLimit ?? 20,
     groupHistories: new Map(),
     groupMemberNames: new Map(),
@@ -187,138 +207,79 @@ const preparedCall = () => {
   };
 };
 
-const pendingForGuest = () =>
-  listWhatsAppOwnMessageHistory({ accountId: "default", peerE164: GUEST });
-
 describe("processMessage with own messages", () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     for (const entries of mocks.namespaces.values()) {
       entries.clear();
     }
     mocks.prepared.mockClear();
+    mocks.appendTranscript.mockClear();
     mocks.resolvePolicy.mockReturnValue(policy({ ownMessages: "history" }));
+  });
+
+  it("keeps canonical own messages out of duplicate next-turn context", async () => {
     await recordWhatsAppOwnMessageHistory({
       accountId: "default",
       messageId: "own-1",
-      chatJid: GUEST_JID,
-      peerE164: GUEST,
+      chatJid: CONTACT_JID,
+      peerE164: CONTACT,
       timestampMs: 1_760_000_000_000,
-      text: "The pool is cleaned on Mondays.",
+      text: "The report is ready on Mondays.",
     });
-  });
-
-  it("puts the business's own messages into the guest's next turn and consumes them", async () => {
-    await runTurn(directMessage({ peer: GUEST, id: "guest-1", body: "When is the pool cleaned?" }));
+    await runTurn(
+      directMessage({ peer: CONTACT, id: "contact-1", body: "When is the report ready?" }),
+    );
 
     const { params, ctx } = preparedCall();
-    expect(params.directHistory).toEqual([
-      expect.objectContaining({
-        sender: "(self)",
-        body: "The pool is cleaned on Mondays.",
-        id: "own-1",
-      }),
-    ]);
-    // The business's message reads as the core writes a message the account sent: (self).
-    expect(params.combinedBody).toMatch(
-      new RegExp(`\\[WhatsApp \\${GUEST}[^\\]]*\\] \\(self\\): The pool is cleaned on Mondays\\.`),
-    );
-    expect(params.combinedBody).toContain("When is the pool cleaned?");
+    expect(params.directHistory).toBeUndefined();
+    expect(params.combinedBody).toContain("When is the report ready?");
+    expect(params.combinedBody).not.toContain("The report is ready on Mondays.");
     expect(ctx.InboundEventKind).toBe("user_request");
-    // Same window as sessionTranscript historyKind "recent", so the same framing.
-    expect(params.combinedBody).toContain("[Recent chat messages - for context]");
-    expect(ctx.InboundHistory).toEqual([
-      expect.objectContaining({
-        sender: "(self)",
-        body: "The pool is cleaned on Mondays.",
-      }),
-    ]);
-    expect(ctx.SessionTranscriptContext).toEqual(
-      expect.objectContaining({ historyLimit: 1, historyKind: "recent" }),
-    );
-    await expect(pendingForGuest()).resolves.toEqual([]);
+    expect(ctx.InboundHistory).toBeUndefined();
   });
 
-  it("shows the newest historyLimit messages and consumes the older ones too", async () => {
-    for (const [messageId, timestampMs] of [
-      ["own-2", 1_760_000_001_000],
-      ["own-3", 1_760_000_002_000],
-    ] as const) {
-      await recordWhatsAppOwnMessageHistory({
-        accountId: "default",
-        messageId,
-        chatJid: GUEST_JID,
-        peerE164: GUEST,
-        timestampMs,
-        text: `Message ${messageId}`,
-      });
-    }
-
-    await runTurn(directMessage({ peer: GUEST, id: "guest-1", body: "Thanks" }), {
-      historyLimit: 2,
-    });
-
-    expect(
-      preparedCall().params.directHistory?.map((entry) => (entry as { id: string }).id),
-    ).toEqual(["own-2", "own-3"]);
-    await expect(pendingForGuest()).resolves.toEqual([]);
-  });
-
-  it("keeps the history when the turn is not dispatched", async () => {
-    const failure = new Error("dispatch failed");
-
-    await expect(
-      runTurn(directMessage({ peer: GUEST, id: "guest-1", body: "Hello?" }), {
-        dispatchReplyFromConfig: async () => {
-          throw failure;
-        },
-      }),
-    ).rejects.toBe(failure);
-
-    await expect(pendingForGuest()).resolves.toHaveLength(1);
-  });
-
-  it("shows only the assistant's sends with ownMessages off, and consumes the phone's too", async () => {
-    mocks.resolvePolicy.mockReturnValue(policy({}));
+  it("keeps assistant sends out of the next contact message body", async () => {
     await recordWhatsAppAssistantMessageHistory({
       accountId: "default",
       messageId: "wa-1",
-      peerE164: GUEST,
+      peerE164: CONTACT,
       timestampMs: 1_760_000_001_000,
-      text: "Your late checkout is approved.",
+      text: "Your order A-100 has shipped.",
     });
 
-    await runTurn(directMessage({ peer: GUEST, id: "guest-1", body: "Thank you!" }));
+    await runTurn(directMessage({ peer: CONTACT, id: "contact-1", body: "Thank you!" }));
 
     const { params } = preparedCall();
-    expect(params.directHistory).toEqual([
-      expect.objectContaining({
-        sender: "(self)",
-        body: "[sent by the assistant from another chat] Your late checkout is approved.",
-        id: "wa-1",
-      }),
-    ]);
-    expect(params.combinedBody).toMatch(
-      /\(self\): \[sent by the assistant from another chat\] Your late checkout is approved\./,
-    );
-    await expect(pendingForGuest()).resolves.toEqual([]);
+    expect(params.directHistory).toBeUndefined();
+    expect(params.combinedBody).toContain("Thank you!");
+    expect(params.combinedBody).not.toContain("Your order A-100 has shipped.");
   });
 
-  it("marks the owner turn for hooks, keeps it unquoted, and leaves the guest history alone", async () => {
+  it("marks the owner turn for hooks, keeps it unquoted, and leaves the contact history alone", async () => {
     mocks.resolvePolicy.mockReturnValue(policy({ ownMessages: "turn", replyToMode: "all" }));
-    const ownMessage = { messageId: "own-1", peerE164: GUEST, timestampMs: 1_760_000_000_000 };
+    const ownMessage = { messageId: "own-1", peerE164: CONTACT, timestampMs: 1_760_000_000_000 };
 
     await runTurn(
       directMessage({
         peer: OWNER,
-        body: `[WhatsApp ${GUEST}] (self): The pool is cleaned on Mondays.`,
+        body: `[WhatsApp ${CONTACT}] (self): The report is ready on Mondays.`,
         ownMessage,
       }),
     );
 
     const { params, ctx } = preparedCall();
-    // One envelope, from the guest's chat; the owner chat adds no second one.
-    expect(params.combinedBody).toBe(`[WhatsApp ${GUEST}] (self): The pool is cleaned on Mondays.`);
-    expect(ctx.ChannelContext).toEqual({ chat: { ownMessage } });
+    // One envelope, from the contact's chat; the owner chat adds no second one.
+    expect(params.combinedBody).toBe(
+      `[WhatsApp ${CONTACT}] (self): The report is ready on Mondays.`,
+    );
+    expect(ctx.ChannelContext).toEqual(
+      expect.objectContaining({
+        chat: {
+          ownMessage,
+          receivedText: `[WhatsApp ${CONTACT}] (self): The report is ready on Mondays.`,
+        },
+      }),
+    );
     // The owner said it to somebody else: the agent observes it, nobody asked it.
     expect(ctx.InboundEventKind).toBe("room_event");
     expect(ctx.SenderE164).toBe(OWNER);
@@ -326,27 +287,180 @@ describe("processMessage with own messages", () => {
     expect(params.replyThreading).toEqual(
       expect.objectContaining({ implicitCurrentMessage: "deny" }),
     );
-    await expect(pendingForGuest()).resolves.toHaveLength(1);
   });
 
   it("leaves an entry stored while a turn runs to the next turn", async () => {
     // after_tool_call stores an agent send without core awaiting it, so the entry can land
     // while the recipient's turn is already running; that turn must not consume it.
-    await runTurn(directMessage({ peer: GUEST, id: "guest-1", body: "Hello?" }), {
+    await runTurn(directMessage({ peer: CONTACT, id: "contact-1", body: "Hello?" }), {
       dispatchReplyFromConfig: async () => {
         await recordWhatsAppAssistantMessageHistory({
           accountId: "default",
           messageId: "wa-late",
-          peerE164: GUEST,
+          peerE164: CONTACT,
           timestampMs: 1_760_000_002_000,
-          text: "Your late checkout is approved.",
+          text: "Your order A-100 has shipped.",
         });
         return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
       },
     });
+  });
+});
 
-    await expect(pendingForGuest()).resolves.toEqual([
-      expect.objectContaining({ message: expect.objectContaining({ messageId: "wa-late" }) }),
+describe("processMessage while the answer is overdue", () => {
+  const EARLIEST_SENT_AT_MS = Date.UTC(2026, 9, 16, 14, 0, 0);
+  const overdueMessage = () => ({
+    ...directMessage({ peer: CONTACT, id: "contact-overdue", body: "Is my order ready?" }),
+    overdueAnswer: { earliestSentAtMs: EARLIEST_SENT_AT_MS },
+  });
+  const replyPlanParams = () =>
+    mocks.replyPlan.mock.calls.at(-1)?.[0] as {
+      overdueAnswer?: unknown;
+      readOverdueAnswer?: () => Promise<unknown>;
+    };
+
+  beforeEach(() => {
+    for (const entries of mocks.namespaces.values()) {
+      entries.clear();
+    }
+    mocks.prepared.mockClear();
+    mocks.replyPlan.mockClear();
+    mocks.resolvePolicy.mockReturnValue(policy({}));
+  });
+
+  it("tells the turn the answer is overdue and gives the reply plan the verdict", async () => {
+    await runTurn(overdueMessage());
+
+    expect(preparedCall().ctx.ChannelStructuredContext).toEqual([
+      expect.objectContaining({
+        label: "WhatsApp overdue answer",
+        type: "overdue_answer",
+        payload: expect.objectContaining({
+          earliest_unanswered_message_sent_at: "2026-10-16T14:00:00.000Z",
+          can_write_to: "owner",
+        }),
+      }),
     ]);
+    expect(replyPlanParams().overdueAnswer).toEqual({ earliestSentAtMs: EARLIEST_SENT_AT_MS });
+  });
+
+  it("lets the reply plan read the person's overdue answer as each reply leaves", async () => {
+    await runTurn(directMessage({ peer: CONTACT, id: "contact-1", body: "Status?" }));
+    const { readOverdueAnswer } = replyPlanParams();
+    const person = { accountId: "default", personE164: CONTACT };
+
+    await expect(readOverdueAnswer?.()).resolves.toBeUndefined();
+    await recordWhatsAppUnansweredMessage(person, {
+      sentAtMs: Date.now() - 16 * 60_000,
+      receivedAtMs: Date.now(),
+    });
+    await expect(readOverdueAnswer?.()).resolves.toEqual({
+      earliestSentAtMs: expect.any(Number),
+    });
+    await recordWhatsAppAnswer(person, Date.now());
+    await expect(readOverdueAnswer?.()).resolves.toBeUndefined();
+  });
+
+  it("gives an ordinary turn no overdue fact and leaves message injection to core", async () => {
+    let replyOptions: Record<string, unknown> | undefined;
+    await runTurn(directMessage({ peer: CONTACT, id: "contact-2", body: "Status?" }), {
+      dispatchReplyFromConfig: async (params) => {
+        replyOptions = params.replyOptions as Record<string, unknown>;
+        return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
+      },
+    });
+
+    expect(preparedCall().ctx.ChannelStructuredContext).toBeUndefined();
+    expect(replyPlanParams().overdueAnswer).toBeUndefined();
+    expect(replyOptions?.messageInjectionDisposition).toBeUndefined();
+  });
+
+  describe("the end of a turn", () => {
+    const person = { accountId: "default", personE164: CONTACT };
+    const sentMinutesAgo = (id: string, minutes: number) => {
+      const message = directMessage({ peer: CONTACT, id, body: "👍" });
+      return { ...message, event: { ...message.event, timestamp: Date.now() - minutes * 60_000 } };
+    };
+    const receive = (message: { event: { id?: string; timestamp?: number } }) =>
+      recordWhatsAppUnansweredMessage(person, {
+        ...(message.event.id ? { id: message.event.id } : {}),
+        ...(message.event.timestamp !== undefined ? { sentAtMs: message.event.timestamp } : {}),
+        receivedAtMs: Date.now(),
+      });
+    const overdueIn = async (minutes: number) =>
+      readWhatsAppOverdueAnswer(person, Date.now() + minutes * 60_000);
+
+    it("handles a message the agent read and chose not to answer", async () => {
+      const thumbsUp = sentMinutesAgo("thumbs-up", 1);
+      await receive(thumbsUp);
+
+      await runTurn(thumbsUp);
+
+      await expect(overdueIn(30)).resolves.toBeUndefined();
+    });
+
+    it("keeps a message waiting when the turn handed it to the owner", async () => {
+      const breakdown = sentMinutesAgo("breakdown", 1);
+      await receive(breakdown);
+
+      await runTurn(breakdown, {
+        dispatchReplyFromConfig: async () => {
+          recordWhatsAppTurnSend(`agent:assistant:whatsapp:direct:${CONTACT}`);
+          return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
+        },
+      });
+
+      await expect(overdueIn(30)).resolves.toEqual({ earliestSentAtMs: breakdown.event.timestamp });
+    });
+
+    it("handles a message that joined the running turn when that turn ends", async () => {
+      const question = sentMinutesAgo("question", 2);
+      const thanks = sentMinutesAgo("thanks", 1);
+      await receive(question);
+      await receive(thanks);
+      const steered = async () => ({
+        queuedFinal: false,
+        counts: { tool: 0, block: 0, final: 0 },
+        deferredToActiveRun: "steer" as const,
+      });
+
+      await runTurn(thanks, { dispatchReplyFromConfig: steered });
+      await expect(overdueIn(30)).resolves.toEqual({ earliestSentAtMs: question.event.timestamp });
+
+      await runTurn(question);
+      await expect(overdueIn(30)).resolves.toBeUndefined();
+    });
+
+    it("leaves a message queued as a follow-up to its own turn", async () => {
+      const followUp = sentMinutesAgo("follow-up", 1);
+      await receive(followUp);
+
+      await runTurn(followUp, {
+        dispatchReplyFromConfig: async () => ({
+          queuedFinal: false,
+          counts: { tool: 0, block: 0, final: 0 },
+          deferredToActiveRun: "followup" as const,
+        }),
+      });
+
+      await expect(overdueIn(30)).resolves.toEqual({ earliestSentAtMs: followUp.event.timestamp });
+    });
+
+    it("handles nothing for a turn that started overdue: the owner decides", async () => {
+      const late = sentMinutesAgo("late", 20);
+      await receive(late);
+
+      await runTurn({ ...late, overdueAnswer: { earliestSentAtMs: late.event.timestamp } });
+
+      await expect(overdueIn(0)).resolves.toEqual({ earliestSentAtMs: late.event.timestamp });
+    });
+  });
+
+  it("never reads an overdue answer for the owner's chat", async () => {
+    await runTurn(directMessage({ peer: OWNER, id: "owner-1", body: "Status?" }), {
+      cfg: { commands: { ownerAllowFrom: [`whatsapp:${OWNER}`] } },
+    });
+
+    expect(replyPlanParams().readOverdueAnswer).toBeUndefined();
   });
 });

@@ -77,7 +77,7 @@ export async function attachWebInboxToSocket(
     sock: socketSession.socketOperations,
     defaultAccountId: options.accountId,
     resolveOutboundMentions: ({ jid, text }) => groupMetadata.resolveOutboundMentions(jid, text),
-    authDir: options.authDir,
+    recipients: socketSession.recipients,
   });
 
   delivery.start();
@@ -100,9 +100,11 @@ export async function attachWebInboxToSocket(
     onClose: socketSession.onClose,
     signalClose: socketSession.signalClose,
     assertSendReady: socketSession.assertSendReady,
+    recipients: socketSession.recipients,
     sendComposingTo: sendApi.sendComposingTo,
     sendMessage: sendApi.sendMessage,
     sendPoll: sendApi.sendPoll,
+    editMessage: sendApi.editMessage,
     sendReaction: sendApi.sendReaction,
   } as const;
 }

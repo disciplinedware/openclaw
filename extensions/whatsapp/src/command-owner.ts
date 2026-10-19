@@ -23,3 +23,9 @@ export function listWhatsAppCommandOwners(cfg: OpenClawConfig): string[] {
       .filter((owner): owner is string => Boolean(owner)),
   );
 }
+
+/** True when `id`, a number or a person's chat id, is one of the WhatsApp command owners. */
+export function isWhatsAppCommandOwner(cfg: OpenClawConfig, id: string): boolean {
+  const person = normalizeWhatsAppDirectId(id);
+  return person !== undefined && listWhatsAppCommandOwners(cfg).includes(person);
+}

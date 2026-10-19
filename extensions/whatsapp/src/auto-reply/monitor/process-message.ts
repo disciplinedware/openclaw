@@ -26,6 +26,14 @@ import {
 import { requireWhatsAppInboundAdmission } from "../../inbound/admission.js";
 import { resolveWhatsAppIngressLifecycle } from "../../inbound/ingress-lifecycle.js";
 import type { AdmittedWebInboundMessage } from "../../inbound/types.js";
+import {
+  formatWhatsAppOverdueSince,
+  readWhatsAppOverdueAnswer,
+  recordWhatsAppMessageSteered,
+  recordWhatsAppTurnEnded,
+  resolveWhatsAppAnswerPerson,
+  consumeWhatsAppTurnSend,
+} from "../../overdue-answers.js";
 import { newConnectionId } from "../../reconnect.js";
 import { formatError } from "../../session.js";
 import {
@@ -52,10 +60,7 @@ import {
 } from "./inbound-dispatch.js";
 import { trackBackgroundTask, updateLastRouteInBackground } from "./last-route.js";
 import { buildInboundLine, formatWhatsAppEnvelopeFrom } from "./message-line.js";
-import {
-  consumeWhatsAppOwnMessageHistory,
-  loadWhatsAppOwnMessageHistory,
-} from "./own-message-context.js";
+import { withWhatsAppOverdueAnswerContext } from "./overdue-answer-context.js";
 import {
   buildHistoryContextFromEntries,
   createChannelMessageReplyPipeline,
@@ -268,22 +273,25 @@ export async function processMessage(params: {
     senderE164: sender.e164 ?? undefined,
     normalizeE164,
   });
-  const ownMessageHistory = await loadWhatsAppOwnMessageHistory({
-    account,
-    msg: params.msg,
-    conversationKind,
-    peerE164: dmRouteTarget,
-    limit: params.groupHistoryLimit ?? 0,
+  const overdueAnswer = params.msg.overdueAnswer;
+  const answerPerson = resolveWhatsAppAnswerPerson({
+    admission,
+    senderE164: params.msg.platform.senderE164,
+    isOwnMessageTurn: params.msg.ownMessage !== undefined,
+    cfg: params.cfg,
   });
-  const contextHistory =
-    conversationKind === "group" ? (visibleGroupHistory ?? []) : (ownMessageHistory?.entries ?? []);
+  if (overdueAnswer && answerPerson) {
+    whatsappInboundLog.info(
+      `WhatsApp overdue answer: turn started; only the owner can be written to account=${answerPerson.accountId} peer=${answerPerson.personE164} since=${formatWhatsAppOverdueSince(overdueAnswer)}`,
+    );
+  }
+  const contextHistory = conversationKind === "group" ? (visibleGroupHistory ?? []) : [];
   if (contextHistory.length > 0) {
     combinedBody = buildHistoryContextFromEntries({
       entries: contextHistory,
       currentMessage: combinedBody,
       excludeLast: false,
-      // Direct history is the platform-selected window that sessionTranscript marks "recent".
-      historyKind: conversationKind === "direct" ? "recent" : "pending",
+      historyKind: "pending",
       formatEntry: (entry) => {
         return formatInboundEnvelope({
           channel: "WhatsApp",
@@ -295,8 +303,6 @@ export async function processMessage(params: {
           chatType: conversationKind,
           senderLabel: entry.sender,
           envelope: envelopeOptions,
-          // Direct history holds only own messages, which the account itself sent.
-          fromMe: conversationKind === "direct",
         });
       },
     });
@@ -307,7 +313,9 @@ export async function processMessage(params: {
   // skipped so the same message slot isn't used for two competing systems.
   const statusReactionController =
     params.statusReactionController ??
-    (params.cfg.messages?.statusReactions?.enabled === true && !params.ackAlreadySent
+    (params.cfg.messages?.statusReactions?.enabled === true &&
+    !params.ackAlreadySent &&
+    !overdueAnswer
       ? await createWhatsAppStatusReactionController({
           cfg: params.cfg,
           msg: params.msg,
@@ -325,7 +333,13 @@ export async function processMessage(params: {
   // that do preflight work before processMessage can send it first and set
   // ackAlreadySent so slow STT does not delay user-visible receipt feedback.
   // Skip if the status reaction controller is handling lifecycle signaling.
-  if (!statusReactionController && !params.ackReaction && params.ackAlreadySent !== true) {
+  // A person whose answer is overdue sees no sign of the turn: no acknowledgement reaction either.
+  if (
+    !statusReactionController &&
+    !params.ackReaction &&
+    params.ackAlreadySent !== true &&
+    !overdueAnswer
+  ) {
     await maybeSendAckReaction({
       cfg: params.cfg,
       msg: params.msg,
@@ -417,10 +431,9 @@ export async function processMessage(params: {
     },
     groupHistory: visibleGroupHistory,
     groupHistoryLimit: params.groupHistoryLimit,
-    directHistory: ownMessageHistory?.entries,
     groupMemberRoster: params.groupMemberNames.get(params.groupHistoryKey),
     groupSystemPrompt: conversationSystemPrompt,
-    msg: params.msg,
+    msg: withWhatsAppOverdueAnswerContext(params.msg),
     rawBody: commandBody,
     route: params.route,
     buildContext: params.buildContext,
@@ -478,22 +491,34 @@ export async function processMessage(params: {
     adapter: {
       ingest: () => turnInput,
       preflight: () => ({ admission: turnAdmission }),
-      onFinalize: (result) => {
+      onFinalize: async (result) => {
+        if (
+          result.dispatched &&
+          turnAdmission.kind === "dispatch" &&
+          answerPerson &&
+          !overdueAnswer
+        ) {
+          const turnSentAtMs = params.msg.event.timestamp;
+          const deferredTo = result.dispatchResult.deferredToActiveRun;
+          if (deferredTo === "steer" && turnSentAtMs !== undefined) {
+            recordWhatsAppMessageSteered(answerPerson, turnSentAtMs);
+          } else if (deferredTo === undefined) {
+            const handled = await recordWhatsAppTurnEnded(
+              answerPerson,
+              { sentAtMs: turnSentAtMs, sent: consumeWhatsAppTurnSend(params.route.sessionKey) },
+              Date.now(),
+            );
+            if (handled) {
+              whatsappInboundLog.info(
+                `WhatsApp overdue answer: a turn that sent nothing handled the messages it read account=${answerPerson.accountId} peer=${answerPerson.personE164}`,
+              );
+            }
+          }
+        }
         // The shared history option also clears during failure cleanup. WhatsApp keeps pending
         // context when dispatch fails so a later message can retry it.
         if (result.dispatched && turnAdmission.kind === "dispatch" && shouldClearGroupHistory) {
           params.groupHistories.set(params.groupHistoryKey, []);
-        }
-        if (result.dispatched && turnAdmission.kind === "dispatch" && ownMessageHistory) {
-          trackBackgroundTask(
-            params.backgroundTasks,
-            consumeWhatsAppOwnMessageHistory(ownMessageHistory).catch((err: unknown) => {
-              params.replyLogger.warn(
-                { error: formatError(err) },
-                "whatsapp: failed to clear consumed own-message history",
-              );
-            }),
-          );
         }
       },
       resolveTurn: () => {
@@ -516,6 +541,10 @@ export async function processMessage(params: {
           statusReactionController,
           transport,
           turnAdoptionLifecycle,
+          overdueAnswer,
+          ...(answerPerson
+            ? { readOverdueAnswer: () => readWhatsAppOverdueAnswer(answerPerson, Date.now()) }
+            : {}),
         });
         finalizeReply = finalize;
         return {

@@ -1,7 +1,7 @@
 {
   "name": "@disciplinedware/whatsapp-for-business",
   "version": "2026.10.2-1",
-  "description": "OpenClaw WhatsApp channel plugin, built from the disciplinedware OpenClaw fork: own messages as history and owner turns, and native approvals that only execApprovals approvers or command owners resolve.",
+  "description": "OpenClaw WhatsApp channel plugin, built from the disciplinedware OpenClaw fork: own messages as history and owner turns, native approvals that only execApprovals approvers or command owners resolve, inbound recovery of missed messages, and overdue answers: a person whose earliest unanswered message waited more than 15 minutes gets nothing automatic, only the owner may be written to.",
   "repository": {
     "type": "git",
     "url": "https://github.com/openclaw/openclaw"

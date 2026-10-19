@@ -1,20 +1,23 @@
 import { formatMediaPlaceholderText } from "openclaw/plugin-sdk/channel-inbound";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
-import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { getRuntimeConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import {
   asOptionalRecord,
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { listWhatsAppAccountIds } from "./accounts.js";
+import { getActiveWebListener } from "./active-listener.js";
 import { isWhatsAppOwnerTarget, normalizeWhatsAppTarget } from "./normalize-target.js";
 import { recordWhatsAppAssistantMessageHistory } from "./own-message-history.js";
 import { findWhatsAppOwnerE164 } from "./owner-target.js";
 import { getWhatsAppRuntime } from "./runtime.js";
+import {
+  listWhatsAppOwnerSessionAccounts,
+  resolveWhatsAppDirectSessionKey,
+} from "./session-route.js";
 
 /** The parts of OpenClaw's `after_tool_call` event that this module reads. */
-type WhatsAppAgentSendToolCall = {
+export type WhatsAppAgentSendToolCall = {
   toolName: string;
   params: Record<string, unknown>;
   toolCallId?: string;
@@ -40,7 +43,7 @@ type DeliveredWhatsAppDirectSend = {
  * Reads a successful `message` tool send to a WhatsApp direct chat. The tool result's details are
  * the core send result: `channel`, the resolved `to`, the media sent and the platform `result`.
  */
-function readDeliveredWhatsAppDirectSend(
+export function readDeliveredWhatsAppDirectSend(
   call: WhatsAppAgentSendToolCall,
   cfg: OpenClawConfig,
 ): DeliveredWhatsAppDirectSend | undefined {
@@ -76,8 +79,7 @@ function readDeliveredWhatsAppDirectSend(
   ]
     .filter(Boolean)
     .join("\n");
-  const messageId =
-    normalizeOptionalString(asOptionalRecord(details?.result)?.messageId) ?? call.toolCallId;
+  const messageId = normalizeOptionalString(asOptionalRecord(details?.result)?.messageId);
   if (!text || !messageId) {
     return undefined;
   }
@@ -112,29 +114,36 @@ async function recordWhatsAppAgentSendHistory(params: {
   if (!owner || !sendingSession || send.peerE164 === owner) {
     return;
   }
-  const directSession = (accountId: string, peerE164: string) =>
-    resolveAgentRoute({
-      cfg: params.cfg,
-      channel: "whatsapp",
-      accountId,
-      peer: { kind: "direct", id: peerE164 },
-    }).sessionKey.toLowerCase();
-  // The accounts on which the sending session is the owner's direct chat. Without an explicit
-  // `accountId`, core sends through the run's account, which must be the only such account.
-  const ownerSessionAccounts = listWhatsAppAccountIds(params.cfg).filter(
-    (accountId) => directSession(accountId, owner) === sendingSession,
-  );
+  // Without an explicit `accountId`, core sends through the run's account, which must be the only
+  // account on which the sending session is the owner's direct chat.
+  const ownerSessionAccounts = listWhatsAppOwnerSessionAccounts({
+    cfg: params.cfg,
+    sessionKey: sendingSession,
+    ownerE164: owner,
+  });
   const accountId =
     ownerSessionAccounts.length === 0
       ? undefined
       : (send.explicitAccountId ??
         (ownerSessionAccounts.length === 1 ? ownerSessionAccounts[0] : undefined));
-  if (!accountId || directSession(accountId, send.peerE164) === sendingSession) {
+  if (!accountId) {
+    return;
+  }
+  // The recipient's chat is keyed by the number as WhatsApp registers it, which the send resolved.
+  const recipients = getActiveWebListener(accountId)?.recipients;
+  if (!recipients) {
+    throw new Error(`no live WhatsApp connection for account ${accountId}`);
+  }
+  const peerE164 = await recipients.resolveE164(send.peerE164);
+  if (
+    peerE164 === owner ||
+    resolveWhatsAppDirectSessionKey({ cfg: params.cfg, accountId, peerE164 }) === sendingSession
+  ) {
     return;
   }
   await recordWhatsAppAssistantMessageHistory({
     accountId,
-    peerE164: send.peerE164,
+    peerE164,
     messageId: send.messageId,
     text: send.text,
     timestampMs: params.nowMs,

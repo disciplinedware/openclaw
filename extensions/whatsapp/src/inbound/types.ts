@@ -6,9 +6,11 @@ import type {
 } from "openclaw/plugin-sdk/channel-inbound";
 import type { PollInput } from "openclaw/plugin-sdk/poll-runtime";
 import type { WhatsAppIdentity, WhatsAppReplyContext, WhatsAppSelfIdentity } from "../identity.js";
+import type { WhatsAppOverdueAnswer } from "../overdue-answers.js";
 import type { WhatsAppOwnMessageTurnFacts } from "../own-messages.js";
 import type { WhatsAppQuotedMessageKey } from "../quoted-message.js";
 import type { WhatsAppInboundAdmission } from "./admission.js";
+import type { WhatsAppRecipientResolver } from "./recipient-resolver.js";
 import type { WhatsAppSendResult } from "./send-result.js";
 
 export type WebListenerCloseReason = {
@@ -27,6 +29,8 @@ export type ActiveWebSendOptions = {
 
 export type ActiveWebListener = {
   assertSendReady?: (to: string) => Promise<void>;
+  /** Resolves a number to the chat WhatsApp registered for it (`recipient-resolver.ts`). */
+  recipients: WhatsAppRecipientResolver;
   sendMessage: (
     to: string,
     text: string,
@@ -35,6 +39,7 @@ export type ActiveWebListener = {
     options?: ActiveWebSendOptions,
   ) => Promise<WhatsAppSendResult>;
   sendPoll: (to: string, poll: PollInput) => Promise<WhatsAppSendResult>;
+  editMessage: (chatJid: string, messageId: string, text: string) => Promise<void>;
   sendReaction: (
     chatJid: string,
     messageId: string,
@@ -138,6 +143,8 @@ export type WebInboundCallbackMessage = {
   };
   /** Set on the owner turn that an own message (`ownMessages: "turn"`) starts. */
   ownMessage?: WhatsAppOwnMessageTurnFacts;
+  /** Set when the turn starts while the person's answer is overdue (`overdue-answers.ts`). */
+  overdueAnswer?: WhatsAppOverdueAnswer;
 };
 
 export type WebInboundMessage = WebInboundCallbackMessage;

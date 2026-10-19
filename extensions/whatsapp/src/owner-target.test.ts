@@ -5,6 +5,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { whatsappChannelOutbound } from "./channel-outbound.js";
 import { whatsappPlugin } from "./channel.js";
+import { createTestWhatsAppRecipientResolver } from "./inbound/recipient-resolver.test-helper.js";
 import type { WhatsAppSendResult } from "./inbound/send-result.js";
 import { listWhatsAppDeliveredMessageIdentities } from "./inbound/send-result.js";
 import type { ActiveWebListener } from "./inbound/types.js";
@@ -32,7 +33,7 @@ const OWNER = "+15550000200";
 const OWNER_DIGITS = "15550000200";
 const OWNER_JID = `${OWNER_DIGITS}@s.whatsapp.net`;
 const OWNER_LID = "987654321012345@lid";
-const GUEST = "+15550000300";
+const CONTACT = "+15550000300";
 
 const cfgWithOwners = (...owners: string[]): OpenClawConfig => ({
   channels: { whatsapp: {} },
@@ -44,7 +45,11 @@ const CFG = cfgWithOwners(`whatsapp:${OWNER}`, "telegram:42");
 const expectNoOwnerIdentity = (value: unknown) => {
   const serialized =
     value instanceof Error
-      ? JSON.stringify({ ...value, message: value.message, stack: value.stack })
+      ? JSON.stringify({
+          ...Object.fromEntries(Object.entries(value)),
+          message: value.message,
+          stack: value.stack,
+        })
       : JSON.stringify(value);
   expect(serialized).not.toContain(OWNER_DIGITS);
   expect(serialized).not.toContain("@lid");
@@ -65,6 +70,7 @@ function acceptedSend(id: string, remoteJid: string): WhatsAppSendResult {
 
 const sendMessage = vi.fn(async (_to: string, _text: string) => acceptedSend("m1", OWNER_JID));
 const sendPoll = vi.fn(async () => ({ ...acceptedSend("p1", OWNER_LID), kind: "poll" as const }));
+const editMessage = vi.fn(async () => undefined);
 const sendReaction = vi.fn(async () => ({
   ...acceptedSend("r1", OWNER_JID),
   kind: "reaction" as const,
@@ -74,7 +80,14 @@ const sendComposingTo = vi.fn(async () => {});
 beforeEach(() => {
   vi.clearAllMocks();
   listeners.clear();
-  listeners.set("default", { sendMessage, sendPoll, sendReaction, sendComposingTo });
+  listeners.set("default", {
+    sendMessage,
+    sendPoll,
+    editMessage,
+    sendReaction,
+    sendComposingTo,
+    recipients: createTestWhatsAppRecipientResolver(),
+  });
 });
 
 describe("owner target before the transport", () => {
@@ -88,7 +101,11 @@ describe("owner target before the transport", () => {
 
   it("keeps owner opaque through the outbound resolver, whatever allowFrom says", () => {
     expect(
-      resolveWhatsAppOutboundTarget({ to: "whatsapp:owner", allowFrom: [GUEST], mode: "explicit" }),
+      resolveWhatsAppOutboundTarget({
+        to: "whatsapp:owner",
+        allowFrom: [CONTACT],
+        mode: "explicit",
+      }),
     ).toEqual({ ok: true, to: "owner" });
   });
 
@@ -106,20 +123,24 @@ describe("owner target before the transport", () => {
 
   it("does not take owner for a phone number anywhere else", () => {
     expect(normalizeWhatsAppMessagingTarget("ownerx")).toBeUndefined();
-    expect(normalizeWhatsAppMessagingTarget(GUEST)).toBe(GUEST);
+    expect(normalizeWhatsAppMessagingTarget(CONTACT)).toBe(CONTACT);
   });
 });
 
 describe("owner target in the transport send", () => {
   it("resolves owner to the one WhatsApp owner only at send and returns no number", async () => {
-    const result = await sendMessageWhatsApp("owner", "A guest asks for a late checkout.", {
-      verbose: false,
-      cfg: CFG,
-    });
+    const result = await sendMessageWhatsApp(
+      "owner",
+      "A contact asks to move the call to Friday.",
+      {
+        verbose: false,
+        cfg: CFG,
+      },
+    );
 
     expect(sendMessage).toHaveBeenCalledWith(
       OWNER,
-      "A guest asks for a late checkout.",
+      "A contact asks to move the call to Friday.",
       undefined,
       undefined,
     );
@@ -168,7 +189,7 @@ describe("owner target in the transport send", () => {
   it("resolves owner for polls, typing and reactions too", async () => {
     const poll = await sendPollWhatsApp(
       "owner",
-      { question: "Late checkout?", options: ["Yes", "No"] },
+      { question: "Move the call to Friday?", options: ["Yes", "No"] },
       { verbose: false, cfg: CFG },
     );
     await sendTypingWhatsApp("owner", { cfg: CFG });
@@ -198,9 +219,9 @@ describe("owner target in the transport send", () => {
   it("leaves every other target and its result as they were", async () => {
     sendMessage.mockResolvedValueOnce(acceptedSend("m2", "15550000300@s.whatsapp.net"));
 
-    const result = await sendMessageWhatsApp(GUEST, "hi", { verbose: false, cfg: CFG });
+    const result = await sendMessageWhatsApp(CONTACT, "hi", { verbose: false, cfg: CFG });
 
-    expect(sendMessage).toHaveBeenCalledWith(GUEST, "hi", undefined, undefined);
+    expect(sendMessage).toHaveBeenCalledWith(CONTACT, "hi", undefined, undefined);
     expect(result).toEqual({ messageId: "m2", toJid: "15550000300@s.whatsapp.net" });
   });
 });
@@ -248,6 +269,16 @@ describe("owner identity redaction", () => {
       message: "failed: owner owner owner call owner or owner; other +155500002001",
       attempt: { toJid: "owner", count: 2 },
     });
+  });
+});
+
+describe("owner registered under other digits", () => {
+  it("returns no number when WhatsApp registered the owner's chat under other digits", async () => {
+    sendMessage.mockResolvedValueOnce(acceptedSend("m1", "5215500000000@s.whatsapp.net"));
+
+    await expect(
+      sendMessageWhatsApp("owner", "hello", { verbose: false, cfg: CFG }),
+    ).resolves.toEqual({ messageId: "m1", toJid: "owner" });
   });
 });
 

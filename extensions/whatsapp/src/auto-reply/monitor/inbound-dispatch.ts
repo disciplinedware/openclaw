@@ -25,6 +25,7 @@ import {
   normalizeWhatsAppOutboundPayload,
   normalizeWhatsAppPayloadTextPreservingIndentation,
 } from "../../outbound-media-contract.js";
+import type { WhatsAppOverdueAnswer } from "../../overdue-answers.js";
 import { newConnectionId } from "../../reconnect.js";
 import type {
   deliverWebReply,
@@ -37,7 +38,7 @@ import { formatGroupMembers } from "./group-members.js";
 import type { GroupHistoryEntry } from "./inbound-context.js";
 import { resolveWhatsAppInboundHistoryWindow } from "./inbound-history.js";
 import type { updateLastRouteInBackground } from "./last-route.js";
-import { buildWhatsAppOwnMessageChannelContext } from "./own-message-context.js";
+import { buildWhatsAppMessageChannelContext } from "./message-channel-context.js";
 import {
   projectPreparedChannelInbound,
   resolveWhatsAppInboundReplyPolicy,
@@ -485,7 +486,7 @@ export async function prepareWhatsAppInboundContext(params: {
       commandBody: params.command?.body ?? params.msg.payload.body,
     },
     sessionTranscript,
-    channelContext: buildWhatsAppOwnMessageChannelContext(params.msg),
+    channelContext: buildWhatsAppMessageChannelContext(params.msg),
     mentions:
       wasMentioned !== undefined
         ? {
@@ -605,6 +606,10 @@ export function createWhatsAppReplyPlan(params: {
   turnAdoptionLifecycle?: NonNullable<
     NonNullable<ChannelInboundTurnPlan["replyOptions"]>["turnAdoptionLifecycle"]
   >;
+  /** Set when the turn starts while the person's answer is overdue: nothing it produces reaches them. */
+  overdueAnswer?: WhatsAppOverdueAnswer;
+  /** Reads the person's overdue answer as a reply leaves, so a reply that comes too late stays unsent. */
+  readOverdueAnswer?: () => Promise<WhatsAppOverdueAnswer | undefined>;
 }) {
   const conversationId = params.inbound.conversation.id;
   const statusReactionController = params.statusReactionController ?? null;
@@ -713,11 +718,23 @@ export function createWhatsAppReplyPlan(params: {
       logWhatsAppMediaOnlyFlushResult(flushResult);
       return { visibleReplySent: didSendReply || flushResult.delivered > 0 };
     },
-    onReplyStart: params.transport.sendComposing,
+    // A person whose answer is overdue sees no sign of the turn, typing included.
+    onReplyStart: params.overdueAnswer ? undefined : params.transport.sendComposing,
   };
   const delivery: ChannelInboundTurnPlan["delivery"] = {
     observeMessageSent: true,
     preparePayload: async (payload: ReplyPayload, info: { kind: ReplyDispatchKind }) => {
+      if (params.overdueAnswer ?? (await params.readOverdueAnswer?.())) {
+        params.replyLogger.info(
+          {
+            connectionId: params.connectionId,
+            conversationId,
+            replyKind: info.kind,
+          },
+          "whatsapp: reply not sent; the answer is overdue and only the owner can be written to",
+        );
+        return null;
+      }
       const deliveryPayload = resolveWhatsAppDeliverablePayload(payload, info);
       if (!deliveryPayload) {
         return null;

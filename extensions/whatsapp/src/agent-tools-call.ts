@@ -19,6 +19,7 @@ import { resolveWhatsAppAccount } from "./accounts.js";
 import { getWhatsAppConnectionController } from "./connection-controller-runtime-context.js";
 import { resolveJidToE164 } from "./targets-runtime.js";
 
+export const WHATSAPP_CALL_TOOL_NAME = "whatsapp_call";
 const MEOWCALLER_COMMAND = "meowcaller";
 const SESSION_DATABASE = "wa-voip.db";
 const MEOWCALLER_CONNECT_TIMEOUT_MS = 60_000;
@@ -194,7 +195,7 @@ function createWhatsAppCallTool(
   const sessionStorePath = path.join(stateDir, SESSION_DATABASE);
 
   return {
-    name: "whatsapp_call",
+    name: WHATSAPP_CALL_TOOL_NAME,
     label: "WhatsApp Call",
     description:
       "Call the current WhatsApp requester and play a synthesized spoken message. This tool cannot call arbitrary phone numbers.",
@@ -319,6 +320,6 @@ function createWhatsAppCallTool(
 
 export function registerWhatsAppCallTool(api: OpenClawPluginApi): void {
   api.registerTool((context) => createWhatsAppCallTool(api, context), {
-    name: "whatsapp_call",
+    name: WHATSAPP_CALL_TOOL_NAME,
   });
 }

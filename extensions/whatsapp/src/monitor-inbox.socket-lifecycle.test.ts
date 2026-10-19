@@ -27,6 +27,9 @@ import {
 import { lookupInboundMessageMeta } from "./quoted-message.js";
 import { DEFAULT_WHATSAPP_SOCKET_TIMING } from "./socket-timing.js";
 
+/** A WhatsApp send time in seconds, recent enough that its turn is not late. */
+const recentSeconds = (offset: number) => Math.floor(Date.now() / 1000) - 60 + offset;
+
 function createAcceptedSendMessageMock() {
   let sequence = 0;
   return vi.fn().mockImplementation(async () => ({
@@ -60,7 +63,7 @@ async function primeCapturedReplyWithSuccessor(params: {
       id: nextMessageId(params.upsertId),
       remoteJid: "999@s.whatsapp.net",
       text: "ping",
-      timestamp: 1_700_000_000,
+      timestamp: recentSeconds(0),
       pushName: "Tester",
     }),
   );
@@ -137,7 +140,7 @@ describe("web monitor inbox socket lifecycle", () => {
         id: nextMessageId("replacement-socket"),
         remoteJid: "999@s.whatsapp.net",
         text: "ping",
-        timestamp: 1_700_000_000,
+        timestamp: recentSeconds(0),
         pushName: "Tester",
       }),
     );
@@ -512,7 +515,7 @@ describe("web monitor inbox socket lifecycle", () => {
             remoteJid: "999@s.whatsapp.net",
           },
           message: { conversation: "pong" },
-          messageTimestamp: 1_700_000_001,
+          messageTimestamp: recentSeconds(1),
           pushName: "Tester",
         },
       ],
@@ -564,7 +567,7 @@ describe("web monitor inbox socket lifecycle", () => {
           id: messageId,
           remoteJid: "999@s.whatsapp.net",
           text: "ping",
-          timestamp: 1_700_000_000,
+          timestamp: recentSeconds(0),
           pushName: "Tester",
         }),
       );

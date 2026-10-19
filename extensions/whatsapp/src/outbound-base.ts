@@ -8,6 +8,7 @@ import {
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { sendTextMediaPayload } from "openclaw/plugin-sdk/reply-payload";
 import { resolveDefaultWhatsAppAccountId } from "./account-ids.js";
+import { getActiveWebListener } from "./active-listener.js";
 import {
   normalizeWhatsAppOutboundPayload,
   normalizeWhatsAppPayloadText,
@@ -15,7 +16,6 @@ import {
 import { WHATSAPP_LEGACY_OUTBOUND_SEND_DEP_KEYS } from "./outbound-send-deps.js";
 import { resolveWhatsAppSendTarget } from "./owner-target.js";
 import { lookupInboundMessageMetaForTarget } from "./quoted-message.js";
-import { toWhatsappJid } from "./targets-runtime.js";
 
 type WhatsAppSendMessage = typeof import("./send.js").sendMessageWhatsApp;
 type WhatsAppSendPoll = typeof import("./send.js").sendPollWhatsApp;
@@ -51,7 +51,7 @@ export function createWhatsAppOutboundBase({
   normalizeText = normalizeWhatsAppPayloadText,
 }: CreateWhatsAppOutboundBaseParams): WhatsAppOutboundBaseCore &
   Pick<ChannelOutboundAdapter, "sendPayload"> {
-  const resolveQuotedMessageKey = (params: {
+  const resolveQuotedMessageKey = async (params: {
     cfg: OpenClawConfig;
     accountId: string;
     to: string;
@@ -61,8 +61,15 @@ export function createWhatsAppOutboundBase({
     if (!replyToId) {
       return undefined;
     }
+    // Without a listener the send fails on its own; the quote names the chat WhatsApp registered.
+    const recipients = getActiveWebListener(params.accountId)?.recipients;
+    if (!recipients) {
+      return undefined;
+    }
     // The quote names the owner's chat inside the plugin; the send still gets `owner`.
-    const targetJid = toWhatsappJid(resolveWhatsAppSendTarget(params.to, params.cfg).to);
+    const targetJid = await recipients.resolvePhoneJid(
+      resolveWhatsAppSendTarget(params.to, params.cfg).to,
+    );
     const cachedMeta = lookupInboundMessageMetaForTarget(params.accountId, targetJid, replyToId);
     return {
       id: replyToId,
@@ -90,7 +97,7 @@ export function createWhatsAppOutboundBase({
   ) => {
     const lookupAccountId =
       normalizeOptionalAccountId(params.accountId) ?? resolveDefaultWhatsAppAccountId(params.cfg);
-    const quotedMessageKey = resolveQuotedMessageKey({
+    const quotedMessageKey = await resolveQuotedMessageKey({
       cfg: params.cfg,
       accountId: lookupAccountId,
       to: params.to,

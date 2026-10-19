@@ -29,6 +29,17 @@ vi.mock("./runtime.js", () => ({
   getOptionalWhatsAppRuntime: () => undefined,
 }));
 
+// Every account is connected; each number is registered under its own digits.
+vi.mock("./active-listener.js", async (importOriginal) => {
+  const { createTestWhatsAppRecipientResolver } =
+    await import("./inbound/recipient-resolver.test-helper.js");
+  const recipients = createTestWhatsAppRecipientResolver();
+  return {
+    ...(await importOriginal<typeof import("./active-listener.js")>()),
+    getActiveWebListener: () => ({ recipients }),
+  };
+});
+
 let whatsappChannelOutbound: typeof import("./channel-outbound.js").whatsappChannelOutbound;
 let whatsappMessageAdapter: typeof import("./channel-outbound.js").whatsappMessageAdapter;
 let clearWhatsAppApprovalReactionTargetsForTest: typeof import("./approval-reactions.js").clearWhatsAppApprovalReactionTargetsForTest;

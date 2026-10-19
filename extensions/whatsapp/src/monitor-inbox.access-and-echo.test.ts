@@ -617,7 +617,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("handles append messages by marking them read but skipping auto-reply", async () => {
+  it("hands a direct message missed while offline to a turn, then marks it read", async () => {
     const { onMessage, listener, sock } = await openInboxMonitor();
     const staleTs = Math.floor(Date.now() / 1000) - 300;
 
@@ -652,8 +652,7 @@ describe("web monitor inbox", () => {
       { timeout: 5_000, interval: 5 },
     );
 
-    // Verify it WAS NOT passed to onMessage
-    expect(onMessage).not.toHaveBeenCalled();
+    expect(onMessage).toHaveBeenCalledTimes(1);
 
     await listener.close();
   });

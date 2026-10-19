@@ -1,6 +1,7 @@
 import { createInboundDebouncer } from "openclaw/plugin-sdk/channel-inbound-debounce";
 import { fanInChannelIngressLifecycles } from "openclaw/plugin-sdk/channel-ingress-runtime";
 import { getPrimaryIdentityId } from "../identity.js";
+import type { WhatsAppOverdueAnswer } from "../overdue-answers.js";
 import { requireWhatsAppInboundAdmission } from "./admission.js";
 import type { WhatsAppIngressLifecycle, WhatsAppReadReceiptTarget } from "./durable-receive.js";
 import { attachWhatsAppIngressLifecycle } from "./ingress-lifecycle.js";
@@ -19,6 +20,10 @@ export function createWhatsAppInboundMessageDebouncer(options: {
   onMessage: (msg: AdmittedWebInboundCallbackMessage) => Promise<void>;
   shouldDebounce?: (msg: AdmittedWebInboundCallbackMessage) => boolean;
   markRead: (target: WhatsAppReadReceiptTarget | undefined) => Promise<void>;
+  /** The overdue answer of the person whose messages `entries` are, read now. */
+  readOverdueAnswer: (
+    entries: readonly WhatsAppQueuedInboundMessage[],
+  ) => Promise<WhatsAppOverdueAnswer | undefined>;
   onPendingWorkChanged: () => void;
   onError: (error: unknown) => void;
 }) {
@@ -91,11 +96,24 @@ export function createWhatsAppInboundMessageDebouncer(options: {
           if (!last) {
             return;
           }
-          try {
-            if (orderedEntries.length === 1) {
-              await options.onMessage(attachWhatsAppIngressLifecycle(last, admissionLifecycle));
-              await settle();
+          // While the answer is overdue the messages stay unread, so the phone keeps showing them
+          // as unanswered.
+          const markTurnRead = async () => {
+            if (!(await options.readOverdueAnswer(orderedEntries))) {
               await Promise.all(orderedEntries.map((entry) => options.markRead(entry.readReceipt)));
+            }
+          };
+          try {
+            const overdueAnswer = await options.readOverdueAnswer(orderedEntries);
+            if (orderedEntries.length === 1) {
+              await options.onMessage(
+                attachWhatsAppIngressLifecycle(
+                  overdueAnswer ? { ...last, overdueAnswer } : last,
+                  admissionLifecycle,
+                ),
+              );
+              await settle();
+              await markTurnRead();
               return;
             }
             const mentioned = new Set<string>();
@@ -131,12 +149,13 @@ export function createWhatsAppInboundMessageDebouncer(options: {
                 },
                 group: combinedGroup,
                 event: { ...last.event, isBatched: true },
+                ...(overdueAnswer ? { overdueAnswer } : {}),
               },
               admissionLifecycle,
             );
             await options.onMessage(combinedMessage);
             await settle();
-            await Promise.all(orderedEntries.map((entry) => options.markRead(entry.readReceipt)));
+            await markTurnRead();
           } catch (error) {
             await abandon();
             throw error;
