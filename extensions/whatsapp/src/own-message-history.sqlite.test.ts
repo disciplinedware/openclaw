@@ -61,6 +61,11 @@ describe("WhatsApp own message transcript history", () => {
           dmScope: "per-account-channel-peer" as const,
         },
         channels: { whatsapp: {} },
+        plugins: {
+          entries: {
+            [WHATSAPP_FOR_BUSINESS_PLUGIN_ID]: { config: { historyAuthors: { phone: "Host" } } },
+          },
+        },
       };
       setRuntimeConfigSnapshot(cfg);
       openOpenClawStateDatabase({ env: state.env });
@@ -147,7 +152,9 @@ describe("WhatsApp own message transcript history", () => {
           content: [
             {
               type: "text",
-              text: "(self): [sent manually from the linked WhatsApp phone] Old manual reply",
+              text: expect.stringMatching(
+                /^\[WhatsApp \+15550000300 [^\]]+\] Host: Old manual reply$/,
+              ),
             },
           ],
           timestamp: legacyMessage.timestampMs,
@@ -157,7 +164,9 @@ describe("WhatsApp own message transcript history", () => {
           content: [
             {
               type: "text",
-              text: "(self): [sent manually from the linked WhatsApp phone]   The report is ready on Mondays.  ",
+              text: expect.stringMatching(
+                /^\[WhatsApp \+15550000300 [^\]]+\] Host: {3}The report is ready on Mondays\. {2}$/,
+              ),
             },
           ],
           timestamp: message.timestampMs,
@@ -197,13 +206,17 @@ describe("WhatsApp own message transcript history", () => {
         [
           {
             type: "text",
-            text: "(self): [sent manually from the linked WhatsApp phone] Old manual reply",
+            text: expect.stringMatching(
+              /^\[WhatsApp \+15550000300 [^\]]+\] Host: Old manual reply$/,
+            ),
           },
         ],
         [
           {
             type: "text",
-            text: "(self): [sent manually from the linked WhatsApp phone]   The report is ready on Mondays.  ",
+            text: expect.stringMatching(
+              /^\[WhatsApp \+15550000300 [^\]]+\] Host: {3}The report is ready on Mondays\. {2}$/,
+            ),
           },
         ],
         "When is the report ready?",

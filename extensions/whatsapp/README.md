@@ -4,9 +4,10 @@ The OpenClaw WhatsApp channel plugin (`@openclaw/whatsapp`, OpenClaw `v2026.10.2
 
 | Capability       | Config key                                                         | Upstream behavior                                                                                                                                                                                                                                                                          |
 | ---------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Own messages     | `channels.whatsapp[.accounts.<id>].ownMessages`                    | A message that the linked phone itself sends to another person is dropped. The agent never sees it.                                                                                                                                                                                        |
-| Native approvals | `channels.whatsapp[.accounts.<id>].execApprovals`                  | WhatsApp has no `execApprovals` block. Approvers come from `allowFrom`, so with `allowFrom: ["*"]` anyone who can react to the prompt resolves it, the business number included. Native prompts need `approvals.exec` or `approvals.plugin` and go to the chat that the request came from. |
+| Own messages     | `plugins.entries.whatsapp-for-business.config.ownMessages`         | A message that the linked phone itself sends to another person is dropped. The agent never sees it.                                                                                                                                                                                        |
+| Native approvals | `plugins.entries.whatsapp-for-business.config.execApprovals`       | WhatsApp has no `execApprovals` block. Approvers come from `allowFrom`, so with `allowFrom: ["*"]` anyone who can react to the prompt resolves it, the business number included. Native prompts need `approvals.exec` or `approvals.plugin` and go to the chat that the request came from. |
 | `owner` target   | `commands.ownerAllowFrom`                                          | To write to the owner, the agent must know the owner's number, and the number comes back in the `message` tool result.                                                                                                                                                                     |
+| History authors  | `plugins.entries.whatsapp-for-business.config.historyAuthors`      | OpenClaw writes the account's own messages as `(self)`. `phone`, `ownerAgent` and `approval` name the author of a history entry in the deployment's words.                                                                                                                                 |
 | Send history     | none                                                               | A `message` send from one chat's session to another chat reaches that chat's transcript as a delivery mirror, which the model never reads: the recipient's next turn does not know what was written to them.                                                                               |
 | Overdue answers  | `plugins.entries.whatsapp-for-business.config.blockOverdueAnswers` | When enabled, the plugin refuses overdue sends. When disabled, each turn receives the current policy, and an old refusal does not establish current permission. Other policies and approval requirements still apply.                                                                      |
 
@@ -42,7 +43,7 @@ openclaw plugins install npm-pack:/tmp/plugins/disciplinedware-whatsapp-for-busi
 
 The pack needs Node.js 24 with npm 11 or newer installed next to the `node` binary: OpenClaw's npm runner prefers that npm, and npm 10 runs Baileys' `prepare` script and fails. The tarball bundles its runtime dependencies, including Baileys with the patch the monorepo applies (`patches/baileys@7.0.0-rc14.patch`). The version follows OpenClaw's release grammar: `2026.10.2-1` is a correction of `2026.10.2`.
 
-Install the plugin before you add the keys below to the config: until the plugin is installed, the upstream schema validates `channels.whatsapp` and refuses them.
+Install the plugin before you add the keys below to the config: until the plugin is installed, OpenClaw refuses `plugins.entries.whatsapp-for-business`.
 
 ## Taking over the `whatsapp` channel
 
@@ -58,7 +59,7 @@ The linked-device credentials stay where they are (`authDir`), so no new QR link
 
 ## Config reference
 
-Both keys can sit at `channels.whatsapp` or at `channels.whatsapp.accounts.<id>`. An account value replaces the root value as a whole. As for every upstream key, values on `accounts.default` are shared defaults for the other accounts. The plugin reads them for each message, so a config change applies without a restart.
+The plugin's settings sit in `plugins.entries.whatsapp-for-business.config`, which the plugin's own `configSchema` (openclaw.plugin.json) validates. `channels.whatsapp` keeps OpenClaw's own schema unchanged, so the plugin runs on a stock OpenClaw. A setting applies to every WhatsApp account. The plugin reads it for each message, so a config change applies without a restart.
 
 ### Overdue answers
 
@@ -69,11 +70,12 @@ Both keys can sit at `channels.whatsapp` or at `channels.whatsapp.accounts.<id>`
 ```json5
 {
   commands: { ownerAllowFrom: ["whatsapp:+15550000200"] }, // the owner, for every channel
-  channels: {
-    whatsapp: {
-      dmPolicy: "open",
-      allowFrom: ["*"], // who may talk to the agent
-      execApprovals: { approvers: ["+15550000200"] }, // optional when ownerAllowFrom names the owner
+  channels: { whatsapp: { dmPolicy: "open", allowFrom: ["*"] } }, // who may talk to the agent
+  plugins: {
+    entries: {
+      "whatsapp-for-business": {
+        config: { execApprovals: { approvers: ["+15550000200"] } }, // optional when ownerAllowFrom names the owner
+      },
     },
   },
 }
@@ -117,11 +119,7 @@ Missing or oversized summaries produce correction errors before approval. The ad
 ```json5
 {
   commands: { ownerAllowFrom: ["whatsapp:+15550000200"] }, // the owner, as for execApprovals
-  channels: {
-    whatsapp: {
-      ownMessages: "turn",
-    },
-  },
+  plugins: { entries: { "whatsapp-for-business": { config: { ownMessages: "turn" } } } },
 }
 ```
 
@@ -137,7 +135,7 @@ The owner is the first entry of `commands.ownerAllowFrom` that is `whatsapp:+<nu
 
 History:
 
-- Each message is appended as an assistant entry to the direct chat's native transcript. The visible text starts with `(self): [sent manually from the linked WhatsApp phone]` and keeps the message text and media placeholder.
+- Each message is appended as an assistant entry to the direct chat's native transcript: `[WhatsApp <other person> <time>] <author>: <text>`, the frame OpenClaw writes for every incoming message: the chat, the time, then who wrote. The author is `historyAuthors.phone` (default `Typed on this number's phone`), then the message text and media placeholder. The core's `(self)` is not used: the reading agent takes it for its own words.
 - A retained plugin-state outbox retries failed transcript appends at startup. It removes an entry only after the native transcript append succeeds.
 
 The owner turn:
@@ -191,10 +189,10 @@ Limits:
 No config. Each sender has their own session when `session.dmScope` is `per-account-channel-peer` (or `per-peer`, `per-channel-peer`). When the agent in the owner's direct session (the WhatsApp entry of `commands.ownerAllowFrom`) sends with the `message` tool to another person's direct chat, the plugin appends the delivery to the recipient's native session transcript without starting a turn:
 
 ```text
-[WhatsApp +15550000300 Thu 2025-10-09T09:10:00Z] (self): [sent by the assistant from another chat] Your order A-100 has shipped.
+[WhatsApp +15550000300 Thu 2025-10-09T09:10:00Z] Owner's AI agent: Your order A-100 has shipped.
 ```
 
-- The entry reads `(self): [sent by the assistant from another chat]`, so the model can distinguish it from a message typed on the phone. Media sent with it shows as a placeholder such as `<media:image>`.
+- The author is `historyAuthors.ownerAgent` (default `Owner's AI agent`), so the model can distinguish it from a message typed on the phone. An approval prompt or outcome in the approver's chat is written the same way, with `historyAuthors.approval` (default `Approval request`). Media sent with it shows as a placeholder such as `<media:image>`.
 - The entry becomes part of the native transcript immediately after delivery is recorded. `ownMessages: "off"` disables recording messages typed on the phone; it does not hide assistant or system entries.
 - A send from the recipient's own session is already in that session's transcript, so it is never recorded. The plugin compares the session that made the send with the recipient's direct session as OpenClaw routes an inbound message from that person (`resolveAgentRoute`).
 - Only a send from the owner's chat is recorded. A send from anyone else's chat, such as a customer's question the agent forwards to `owner`, can carry that person's words; recorded as the assistant's own message in another chat, they would be read as the assistant's, with that chat's tools. The owner reads such a forward on the phone, and quoting it brings its text into the owner's turn as a quote.
@@ -218,7 +216,7 @@ pnpm check:changed --base v2026.10.2 --head HEAD           # OpenClaw's changed-
 node --import ./scripts/tsx.mjs extensions/whatsapp/scripts/write-channel-config-schema.mts   # rewrite channelConfigs
 ```
 
-On branch `whatsapp-own-messages-approvals` the schema lives in core (`src/config/zod-schema.providers-whatsapp.ts`). The packaging commit adds the plugin-local copy `src/whatsapp-config-schema.ts`, because a third-party plugin defines its own schema and a stock host's copy lacks `execApprovals` and `ownMessages`. `whatsapp-config-schema.test.ts` keeps the copy equal to core and `openclaw.plugin.json` in sync with it.
+The plugin leaves OpenClaw's core unchanged. `src/whatsapp-config-schema.ts` is the plugin-local copy of OpenClaw's `channels.whatsapp` schema, which a third-party plugin must ship; `whatsapp-config-schema.test.ts` keeps it equal to OpenClaw's and `openclaw.plugin.json` in sync with it. The plugin's own settings are in `configSchema` of `openclaw.plugin.json` and `src/plugin-config.ts`.
 
 ## License
 

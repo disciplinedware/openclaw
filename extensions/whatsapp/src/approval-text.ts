@@ -4,7 +4,7 @@ import {
   type ApprovalReactionDecisionBinding,
 } from "openclaw/plugin-sdk/approval-reaction-runtime";
 import { getRuntimeConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
-import { WHATSAPP_FOR_BUSINESS_PLUGIN_ID } from "./plugin-id.js";
+import { readWhatsAppPluginConfig } from "./plugin-config.js";
 
 type ApprovalDecision = ApprovalReactionDecisionBinding["decision"];
 type ApprovalLanguage = "en" | "es";
@@ -59,10 +59,7 @@ const APPROVAL_OUTCOME_TEXT: Record<
 };
 
 function configuredApprovalLanguage(): ApprovalLanguage {
-  const configured =
-    getRuntimeConfig().plugins?.entries?.[WHATSAPP_FOR_BUSINESS_PLUGIN_ID]?.config
-      ?.approvalLanguage;
-  return configured === "es" ? "es" : "en";
+  return readWhatsAppPluginConfig(getRuntimeConfig()).approvalLanguage === "es" ? "es" : "en";
 }
 
 function buildReactionHint(

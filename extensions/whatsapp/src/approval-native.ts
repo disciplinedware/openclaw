@@ -47,13 +47,10 @@ const resolveWhatsAppApproverDmTargets = createChannelApproverDmTargetResolver({
 });
 
 function describeWhatsAppApprovalSetup(
-  { accountId }: { accountId?: string | null },
+  _account: { accountId?: string | null },
   approvalKind: ChannelApprovalKind,
 ): string {
-  const prefix =
-    accountId && accountId !== "default"
-      ? `channels.whatsapp.accounts.${accountId}`
-      : "channels.whatsapp";
+  const prefix = "plugins.entries.whatsapp-for-business.config";
   return `Approve it from the ${approvalKind === "plugin" ? "Web UI or terminal UI" : "Web UI"} for now. WhatsApp supports native ${approvalKind} approvals for this account. Configure \`${prefix}.execApprovals.approvers\` or \`commands.ownerAllowFrom\`; leave \`${prefix}.execApprovals.enabled\` unset/\`auto\` or set it to \`true\`.`;
 }
 

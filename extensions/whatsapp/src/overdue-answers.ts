@@ -3,7 +3,7 @@ import { resolveGlobalMap } from "openclaw/plugin-sdk/global-singleton";
 import { getRuntimeConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { isWhatsAppCommandOwner, normalizeWhatsAppDirectId } from "./command-owner.js";
 import type { WhatsAppInboundAdmission } from "./inbound/admission.js";
-import { WHATSAPP_FOR_BUSINESS_PLUGIN_ID } from "./plugin-id.js";
+import { readWhatsAppPluginConfig } from "./plugin-config.js";
 import { createPerRuntimeStoreOpener } from "./plugin-keyed-store.js";
 import { getWhatsAppRuntime } from "./runtime.js";
 
@@ -279,10 +279,7 @@ export async function listWhatsAppOverdueAnswers(
 }
 
 export function isWhatsAppOverdueAnswerBlockingEnabled(): boolean {
-  return (
-    getRuntimeConfig().plugins?.entries?.[WHATSAPP_FOR_BUSINESS_PLUGIN_ID]?.config
-      ?.blockOverdueAnswers !== false
-  );
+  return readWhatsAppPluginConfig(getRuntimeConfig()).blockOverdueAnswers !== false;
 }
 
 const THRESHOLD_MINUTES = WHATSAPP_OVERDUE_ANSWER_THRESHOLD_MS / 60_000;

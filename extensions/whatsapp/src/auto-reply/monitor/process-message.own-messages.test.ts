@@ -214,7 +214,7 @@ describe("processMessage with own messages", () => {
     }
     mocks.prepared.mockClear();
     mocks.appendTranscript.mockClear();
-    mocks.resolvePolicy.mockReturnValue(policy({ ownMessages: "history" }));
+    mocks.resolvePolicy.mockReturnValue(policy({}));
   });
 
   it("keeps canonical own messages out of duplicate next-turn context", async () => {
@@ -256,7 +256,7 @@ describe("processMessage with own messages", () => {
   });
 
   it("marks the owner turn for hooks, keeps it unquoted, and leaves the contact history alone", async () => {
-    mocks.resolvePolicy.mockReturnValue(policy({ ownMessages: "turn", replyToMode: "all" }));
+    mocks.resolvePolicy.mockReturnValue(policy({ replyToMode: "all" }));
     const ownMessage = { messageId: "own-1", peerE164: CONTACT, timestampMs: 1_760_000_000_000 };
 
     await runTurn(
