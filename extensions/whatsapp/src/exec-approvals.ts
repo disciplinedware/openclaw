@@ -12,11 +12,11 @@ import type {
   SystemAgentApprovalRequest,
 } from "openclaw/plugin-sdk/approval-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import type { WhatsAppAccountConfig } from "./account-types.js";
 import { resolveDefaultWhatsAppAccountId, resolveWhatsAppAccount } from "./accounts.js";
 import { listWhatsAppCommandOwners, normalizeWhatsAppDirectId } from "./command-owner.js";
+import { readWhatsAppPluginConfig, type WhatsAppPluginConfig } from "./plugin-config.js";
 
-type WhatsAppExecApprovalConfig = NonNullable<WhatsAppAccountConfig["execApprovals"]>;
+type WhatsAppExecApprovalConfig = NonNullable<WhatsAppPluginConfig["execApprovals"]>;
 type ApprovalRequest = ExecApprovalRequest | PluginApprovalRequest | SystemAgentApprovalRequest;
 
 function resolveWhatsAppExecApprovalConfig(params: {
@@ -24,7 +24,7 @@ function resolveWhatsAppExecApprovalConfig(params: {
   accountId?: string | null;
 }): WhatsAppExecApprovalConfig {
   const account = resolveWhatsAppAccount(params);
-  const config = account.execApprovals;
+  const config = readWhatsAppPluginConfig(params.cfg).execApprovals;
   return {
     ...config,
     enabled: account.enabled ? (config?.enabled ?? "auto") : false,

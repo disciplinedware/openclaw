@@ -1,7 +1,6 @@
 import type { WAMessage } from "baileys";
 import { resolveEnvelopeFormatOptions } from "openclaw/plugin-sdk/channel-inbound";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import { resolveWhatsAppAccount } from "../accounts.js";
 import { listWhatsAppCommandOwners } from "../command-owner.js";
 import { resolveComparableIdentity, type WhatsAppSelfIdentity } from "../identity.js";
 import { recordWhatsAppOwnMessageHistory } from "../own-message-history.js";
@@ -117,9 +116,7 @@ export function createWhatsAppOwnMessageHandler(deps: {
     if (msg.key?.fromMe !== true) {
       return undefined;
     }
-    const mode = resolveWhatsAppOwnMessagesMode(
-      resolveWhatsAppAccount({ cfg: currentConfig(), accountId: deps.accountId }),
-    );
+    const mode = resolveWhatsAppOwnMessagesMode(currentConfig());
     if (mode === "off") {
       return undefined;
     }

@@ -42,7 +42,9 @@
       "title": "Message handling",
       "order": 20,
       "properties": [
-        "blockOverdueAnswers"
+        "ownMessages",
+        "blockOverdueAnswers",
+        "historyAuthors"
       ]
     },
     {
@@ -50,6 +52,7 @@
       "title": "Approval messages",
       "order": 30,
       "properties": [
+        "execApprovals",
         "approvalLanguage",
         "unhandledApprovalPolicy"
       ]
@@ -91,6 +94,92 @@
         ],
         "default": "block",
         "description": "When a send requests approval but no approval policy clears the request, block by default. Set to send only when unreviewed requested sends may proceed."
+      },
+      "historyAuthors": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Author names of the history entries the plugin writes into a chat, in the deployment's words. Defaults: phone \"Typed on this number's phone\", ownerAgent \"Owner's AI agent\", approval \"Approval request\".",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A message typed on the phone of the linked number."
+          },
+          "ownerAgent": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An agent's message sent from the owner's chat."
+          },
+          "approval": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An approval request or its outcome."
+          }
+        }
+      },
+      "execApprovals": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Native WhatsApp approvals of exec, plugin and system-agent requests. Approvers are E.164 numbers, else the WhatsApp owners in commands.ownerAllowFrom; allowFrom never makes an approver.",
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "const": "auto"
+              }
+            ],
+            "description": "Unset or \"auto\" enables DM-first native approvals when approvers can be resolved; true forces them on; false disables them."
+          },
+          "approvers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^\\+[1-9]\\d{1,14}$"
+            },
+            "description": "E.164 numbers allowed to approve, by reaction or /approve."
+          },
+          "agentFilter": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Agent ids eligible for WhatsApp approvals."
+          },
+          "sessionFilter": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Session-key patterns eligible for WhatsApp approvals."
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "dm",
+              "channel",
+              "both"
+            ],
+            "description": "Where prompts go: approver DMs (default), the originating chat, or both."
+          },
+          "notifyOrigin": {
+            "type": "boolean",
+            "description": "With target \"dm\", tell the originating chat that its approval went to approver DMs (default true). Set false when that chat is a customer's."
+          }
+        }
+      },
+      "ownMessages": {
+        "type": "string",
+        "enum": [
+          "off",
+          "history",
+          "turn"
+        ],
+        "default": "off",
+        "description": "Messages the linked phone sends itself to another person: dropped (off), kept as that chat's history (history), or also one agent run in the first WhatsApp owner's session (turn). Nothing is sent to the other person."
       }
     }
   },
@@ -438,61 +527,6 @@
             },
             "additionalProperties": false
           },
-          "execApprovals": {
-            "type": "object",
-            "properties": {
-              "enabled": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "string",
-                    "const": "auto"
-                  }
-                ]
-              },
-              "approvers": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "pattern": "^\\+[1-9]\\d{1,14}$"
-                }
-              },
-              "agentFilter": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "sessionFilter": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "target": {
-                "type": "string",
-                "enum": [
-                  "dm",
-                  "channel",
-                  "both"
-                ]
-              },
-              "notifyOrigin": {
-                "type": "boolean"
-              }
-            },
-            "additionalProperties": false
-          },
-          "ownMessages": {
-            "type": "string",
-            "enum": [
-              "off",
-              "history",
-              "turn"
-            ]
-          },
           "accounts": {
             "type": "object",
             "propertyNames": {
@@ -836,61 +870,6 @@
                   },
                   "additionalProperties": false
                 },
-                "execApprovals": {
-                  "type": "object",
-                  "properties": {
-                    "enabled": {
-                      "anyOf": [
-                        {
-                          "type": "boolean"
-                        },
-                        {
-                          "type": "string",
-                          "const": "auto"
-                        }
-                      ]
-                    },
-                    "approvers": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "pattern": "^\\+[1-9]\\d{1,14}$"
-                      }
-                    },
-                    "agentFilter": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "sessionFilter": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "target": {
-                      "type": "string",
-                      "enum": [
-                        "dm",
-                        "channel",
-                        "both"
-                      ]
-                    },
-                    "notifyOrigin": {
-                      "type": "boolean"
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "ownMessages": {
-                  "type": "string",
-                  "enum": [
-                    "off",
-                    "history",
-                    "turn"
-                  ]
-                },
                 "name": {
                   "type": "string"
                 },
@@ -956,44 +935,6 @@
         },
         "accounts.*.groupAllowFrom.*": {
           "presentation": "phone-number"
-        },
-        "execApprovals": {
-          "label": "WhatsApp Exec Approvals",
-          "help": "WhatsApp-native exec and plugin approval routing and approver authorization. When unset, OpenClaw auto-enables DM-first native approvals if approvers can be resolved for the selected account."
-        },
-        "execApprovals.enabled": {
-          "label": "WhatsApp Exec Approvals Enabled",
-          "help": "Controls WhatsApp native approvals for this account: unset or \"auto\" enables DM-first native approvals when approvers can be resolved, true forces native approvals on, and false disables them."
-        },
-        "execApprovals.approvers": {
-          "label": "WhatsApp Exec Approval Approvers",
-          "help": "E.164 phone numbers allowed to approve requests for this WhatsApp account, by reaction or /approve. If you leave this unset, OpenClaw falls back to WhatsApp owner numbers from commands.ownerAllowFrom. allowFrom only admits senders; it never makes an approver."
-        },
-        "execApprovals.approvers.*": {
-          "presentation": "phone-number"
-        },
-        "accounts.*.execApprovals.approvers.*": {
-          "presentation": "phone-number"
-        },
-        "execApprovals.notifyOrigin": {
-          "label": "WhatsApp Exec Approval Origin Notice",
-          "help": "With target \"dm\", tell the chat a request came from that its approval went to approver DMs (default true). Set false when that chat is a customer's, so the customer sees no approval notice."
-        },
-        "execApprovals.agentFilter": {
-          "label": "WhatsApp Exec Approval Agent Filter",
-          "help": "Optional allowlist of agent IDs eligible for WhatsApp approvals, for example `[\"main\", \"ops-agent\"]`. Use this to keep approval prompts scoped to the agents you actually operate from WhatsApp."
-        },
-        "execApprovals.sessionFilter": {
-          "label": "WhatsApp Exec Approval Session Filter",
-          "help": "Optional session-key filters matched as substring or regex-style patterns before WhatsApp approval routing is used. Use narrow patterns so WhatsApp approvals only appear for intended sessions."
-        },
-        "execApprovals.target": {
-          "label": "WhatsApp Exec Approval Target",
-          "help": "Controls where WhatsApp approval prompts are sent: \"dm\" sends to approver DMs (default), \"channel\" sends to the originating WhatsApp chat, and \"both\" sends to both. Channel delivery shows the request to everyone in that chat, so only use it in trusted chats."
-        },
-        "ownMessages": {
-          "label": "WhatsApp Own Messages",
-          "help": "Messages the linked phone sends itself to another person. \"off\" drops them (default); \"history\" keeps them as history for that chat; \"turn\" also runs the agent once, as a room event, in the direct session of the first WhatsApp owner in commands.ownerAllowFrom. Nothing is sent to the other person."
         },
         "selfChatMode": {
           "label": "WhatsApp Self-Phone Mode",

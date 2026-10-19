@@ -217,8 +217,10 @@ describe("agent send history", () => {
           content: [
             {
               type: "text",
-              text: expect.stringContaining(
-                "[sent by the assistant from another chat] Here is the map.\n<media:image>",
+              text: expect.stringMatching(
+                new RegExp(
+                  `^\\[WhatsApp \\${CONTACT} [^\\]]+\\] Owner's AI agent: Here is the map\\.\n<media:image>$`,
+                ),
               ),
             },
           ],

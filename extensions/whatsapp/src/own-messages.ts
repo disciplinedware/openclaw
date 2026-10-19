@@ -4,19 +4,12 @@ import {
   formatMediaPlaceholderText,
   type EnvelopeFormatOptions,
 } from "openclaw/plugin-sdk/channel-inbound";
-import type { WhatsAppAccountConfig } from "./account-types.js";
-import type { ResolvedWhatsAppAccount } from "./accounts.js";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { isRecentOutboundMessage } from "./inbound/dedupe.js";
 import { extractMediaKind, extractText, hasInboundUserContent } from "./inbound/extract.js";
 import { isWhatsAppSentMessage } from "./inbound/sent-message-store.js";
 import { isDirectUserJid } from "./inbound/socket-session.js";
-
-/**
- * History sender label of an own message: the attribution OpenClaw's
- * `formatInboundEnvelope` gives a direct message with `fromMe`, so an entry
- * reads `(self): <text>` as the core writes such a message.
- */
-export const WHATSAPP_OWN_MESSAGE_SENDER_LABEL = "(self)";
+import { readWhatsAppPluginConfig, type WhatsAppPluginConfig } from "./plugin-config.js";
 
 /** A message the linked phone itself sent, live, to another person's direct chat. */
 export type WhatsAppOwnMessage = {
@@ -38,9 +31,9 @@ export type WhatsAppOwnMessageTurnFacts = Pick<
 >;
 
 export function resolveWhatsAppOwnMessagesMode(
-  account: Pick<ResolvedWhatsAppAccount, "ownMessages">,
-): NonNullable<WhatsAppAccountConfig["ownMessages"]> {
-  return account.ownMessages ?? "off";
+  cfg: OpenClawConfig | undefined,
+): NonNullable<WhatsAppPluginConfig["ownMessages"]> {
+  return readWhatsAppPluginConfig(cfg).ownMessages ?? "off";
 }
 
 // Sections that change, retract or react to a message instead of authoring one.
