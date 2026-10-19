@@ -135,7 +135,7 @@ The owner is the first entry of `commands.ownerAllowFrom` that is `whatsapp:+<nu
 
 History:
 
-- Each message is appended as an assistant entry to the direct chat's native transcript: `[WhatsApp <other person> <time>] <author>: <text>`, the frame OpenClaw writes for every incoming message: the chat, the time, then who wrote. The author is `historyAuthors.phone` (default `Typed on this number's phone`), then the message text and media placeholder. The core's `(self)` is not used: the reading agent takes it for its own words.
+- Each message is appended to the direct chat's native transcript as a custom message (`customType: "whatsapp.history"`), as core's `AgentSession.sendCustomMessage` records application context; the model reads it as context, never as its own words: `[WhatsApp <other person> <time>] <author>: <text>`, the frame OpenClaw writes for every incoming message: the chat, the time, then who wrote. The author is `historyAuthors.phone` (default `Typed on this number's phone`), then the message text and media placeholder. The core's `(self)` is not used: the reading agent takes it for its own words.
 - A retained plugin-state outbox retries failed transcript appends at startup. It removes an entry only after the native transcript append succeeds.
 
 The owner turn:
@@ -195,7 +195,7 @@ No config. Each sender has their own session when `session.dmScope` is `per-acco
 - The author is `historyAuthors.ownerAgent` (default `Owner's AI agent`), so the model can distinguish it from a message typed on the phone. An approval prompt or outcome in the approver's chat is written the same way, with `historyAuthors.approval` (default `Approval request`). Media sent with it shows as a placeholder such as `<media:image>`.
 - The entry becomes part of the native transcript immediately after delivery is recorded. `ownMessages: "off"` disables recording messages typed on the phone; it does not hide assistant or system entries.
 - A send from the recipient's own session is already in that session's transcript, so it is never recorded. The plugin compares the session that made the send with the recipient's direct session as OpenClaw routes an inbound message from that person (`resolveAgentRoute`).
-- Only a send from the owner's chat is recorded. A send from anyone else's chat, such as a customer's question the agent forwards to `owner`, can carry that person's words; recorded as the assistant's own message in another chat, they would be read as the assistant's, with that chat's tools. The owner reads such a forward on the phone, and quoting it brings its text into the owner's turn as a quote.
+- Only a send from the owner's chat is recorded. A send from anyone else's chat, such as a customer's question the agent forwards to `owner`, can carry that person's words; recorded under the owner's AI agent in another chat, they would be read as the owner's side, with that chat's tools. The owner reads such a forward on the phone, and quoting it brings its text into the owner's turn as a quote.
 
 How it works and its limits:
 

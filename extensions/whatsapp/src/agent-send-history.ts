@@ -96,7 +96,7 @@ export function readDeliveredWhatsAppDirectSend(
  * Records an agent's `message` send made in the owner's direct chat into the recipient's chat
  * history, so the recipient's next turn knows what the owner's chat wrote to them. Only the owner's
  * chat writes this way: a send from anyone else's chat can carry that person's words, and recorded
- * as the assistant's own message in another chat they would be read as the assistant's, with that
+ * under the owner's AI agent in another chat they would be read as the owner's side, with that
  * chat's tools. A send from the recipient's own session is already in its transcript.
  */
 async function recordWhatsAppAgentSendHistory(params: {

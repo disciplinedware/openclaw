@@ -21,6 +21,7 @@ import { setWhatsAppRuntime } from "../runtime-setter-api.js";
 import {
   registerWhatsAppOwnMessageHistory,
   recordWhatsAppOwnMessageHistory,
+  WHATSAPP_HISTORY_CUSTOM_TYPE,
 } from "./own-message-history.js";
 import { WHATSAPP_FOR_BUSINESS_PLUGIN_ID } from "./plugin-id.js";
 
@@ -148,7 +149,8 @@ describe("WhatsApp own message transcript history", () => {
       expect(entries).toHaveLength(2);
       expect(entries.map(({ message: row }) => row)).toMatchObject([
         {
-          role: "assistant",
+          role: "custom",
+          customType: WHATSAPP_HISTORY_CUSTOM_TYPE,
           content: [
             {
               type: "text",
@@ -160,7 +162,8 @@ describe("WhatsApp own message transcript history", () => {
           timestamp: legacyMessage.timestampMs,
         },
         {
-          role: "assistant",
+          role: "custom",
+          customType: WHATSAPP_HISTORY_CUSTOM_TYPE,
           content: [
             {
               type: "text",
@@ -197,7 +200,7 @@ describe("WhatsApp own message transcript history", () => {
         storePath,
       });
       const afterTurnContent = afterTurn.map(({ message: row }) => {
-        if (row.role !== "assistant" && row.role !== "user") {
+        if (row.role !== "custom" && row.role !== "user") {
           throw new Error(`Unexpected transcript role: ${row.role}`);
         }
         return row.content;

@@ -4,6 +4,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerWhatsAppAgentSendHistory } from "./agent-send-history.js";
+import { WHATSAPP_HISTORY_CUSTOM_TYPE } from "./own-message-history.js";
 
 const memoryState = vi.hoisted(() => ({ namespaces: new Map<string, Map<string, unknown>>() }));
 const appendTranscript = vi.hoisted(() => vi.fn(async () => ({ kind: "result" as const })));
@@ -155,7 +156,8 @@ describe("agent send history", () => {
     expect(appendTranscript).toHaveBeenCalledWith(
       expect.objectContaining({
         message: expect.objectContaining({
-          role: "assistant",
+          role: "custom",
+          customType: WHATSAPP_HISTORY_CUSTOM_TYPE,
           content: [
             {
               type: "text",
@@ -183,7 +185,7 @@ describe("agent send history", () => {
     expect(appendTranscript).not.toHaveBeenCalled();
   });
 
-  it("records nothing for a contact session's send to owner: a contact's words never enter the owner's chat as the assistant's", async () => {
+  it("records nothing for a contact session's send to owner: a contact's words never enter the owner's chat as the owner's side", async () => {
     await record(
       messageSend({
         to: "owner",
