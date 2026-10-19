@@ -3,7 +3,6 @@ import { buildGroupEntrySchema, refineChannelDmPolicy } from "../channels/plugin
 import { resolveAccountEntry } from "../routing/account-lookup.js";
 import {
   ChannelSendReadReceiptsSchema,
-  buildChannelExecApprovalsSchema,
   buildChannelReactionShape,
   buildChannelAccountSchemaParts,
 } from "./zod-schema.channel-messaging-common.js";
@@ -29,11 +28,6 @@ const WhatsAppPluginHooksSchema = z
   })
   .optional();
 
-/** A phone number in E.164 form: "+", country code, subscriber number, 15 digits at most. */
-const WhatsAppE164Schema = z
-  .string()
-  .regex(/^\+[1-9]\d{1,14}$/, "expected an E.164 phone number such as +15550001234");
-
 const { accountShape, rootPolicyShape } = buildChannelAccountSchemaParts({
   omit: ["name"],
   allowFrom: z.array(z.string()).optional(),
@@ -52,14 +46,6 @@ const WhatsAppCommonShape = {
     reactionLevels: ["off", "ack", "minimal", "extensive"],
   }),
   pluginHooks: WhatsAppPluginHooksSchema,
-  execApprovals: buildChannelExecApprovalsSchema(WhatsAppE164Schema, {
-    notifyOrigin: z.boolean().optional(),
-  }),
-  /**
-   * Messages the linked phone itself sends to another person's direct chat: dropped (`off`),
-   * kept as that chat's history (`history`), or also one run in the WhatsApp owner's session (`turn`).
-   */
-  ownMessages: z.enum(["off", "history", "turn"]).optional(),
 };
 
 const WhatsAppAccountSchema = z.strictObject({

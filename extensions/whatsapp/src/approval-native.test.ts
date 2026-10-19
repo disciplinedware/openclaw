@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { whatsappApprovalCapability } from "./approval-native.js";
+import { whatsappPluginEntries } from "./plugin-config.test-helper.js";
 
 const BUSINESS = "+15550000100";
 const OWNER = "+15550000200";
@@ -9,8 +10,10 @@ function buildConfig(
   whatsapp: Record<string, unknown>,
   extra: Record<string, unknown> = {},
 ): never {
+  const { execApprovals, ...channel } = whatsapp;
   return {
-    channels: { whatsapp: { dmPolicy: "open", allowFrom: ["*"], ...whatsapp } },
+    channels: { whatsapp: { dmPolicy: "open", allowFrom: ["*"], ...channel } },
+    ...(execApprovals ? { plugins: whatsappPluginEntries({ execApprovals }) } : {}),
     ...extra,
   } as never;
 }
@@ -98,23 +101,6 @@ describe("whatsapp native approval delivery", () => {
       notifyOriginWhenDmOnly: false,
     });
     expect(await plan.approverDms).toEqual([{ to: OWNER }]);
-  });
-
-  it("reads notifyOrigin per account", () => {
-    const cfg = buildConfig({
-      execApprovals: { approvers: [OWNER] },
-      accounts: { biz: { execApprovals: { approvers: [OWNER], notifyOrigin: false } } },
-    });
-    const notifies = (accountId: string) =>
-      native.describeDeliveryCapabilities({
-        cfg,
-        accountId,
-        approvalKind: "plugin",
-        request: pluginRequest(),
-      }).notifyOriginWhenDmOnly;
-
-    expect(notifies("default")).toBe(true);
-    expect(notifies("biz")).toBe(false);
   });
 
   it("takes the approver from the WhatsApp entries of commands.ownerAllowFrom", async () => {

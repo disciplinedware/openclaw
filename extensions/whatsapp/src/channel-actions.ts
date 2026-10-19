@@ -8,14 +8,13 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { getRuntimeConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { Type } from "typebox";
 import { listWhatsAppAccountIds, resolveWhatsAppAccount } from "./accounts.js";
-import { WHATSAPP_FOR_BUSINESS_PLUGIN_ID } from "./plugin-id.js";
+import { readWhatsAppPluginConfig } from "./plugin-config.js";
 import { resolveWhatsAppReactionLevel } from "./reaction-level.js";
 
 function unhandledApprovalPolicy(): "block" | "send" {
-  const configured =
-    getRuntimeConfig().plugins?.entries?.[WHATSAPP_FOR_BUSINESS_PLUGIN_ID]?.config
-      ?.unhandledApprovalPolicy;
-  return configured === "send" ? "send" : "block";
+  return readWhatsAppPluginConfig(getRuntimeConfig()).unhandledApprovalPolicy === "send"
+    ? "send"
+    : "block";
 }
 
 export const prepareWhatsAppSendPayload: NonNullable<

@@ -508,7 +508,7 @@ describe("whatsappApprovalNativeRuntime delivery", () => {
         });
       const cfg = {
         commands: { ownerAllowFrom: ["whatsapp:+15550000200"] },
-        channels: { whatsapp: { execApprovals: {} } },
+        channels: { whatsapp: {} },
       };
       const handler = await createChannelApprovalHandlerFromCapability({
         capability: whatsappApprovalCapability,

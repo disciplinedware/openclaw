@@ -10,6 +10,7 @@ import {
   isWhatsAppExecApprovalClientEnabled,
   resolveWhatsAppExecApprovalTarget,
 } from "./exec-approvals.js";
+import { acceptsWhatsAppPluginConfig, whatsappPluginEntries } from "./plugin-config.test-helper.js";
 
 const resolverMocks = vi.hoisted(() => ({
   resolveApprovalOverGateway: vi.fn(),
@@ -29,13 +30,10 @@ const PROMPT_MESSAGE_ID = "approval-prompt";
 function publicBusinessConfig(params: { approvers?: string[]; ownerAllowFrom?: string[] } = {}) {
   return {
     ...(params.ownerAllowFrom ? { commands: { ownerAllowFrom: params.ownerAllowFrom } } : {}),
-    channels: {
-      whatsapp: {
-        dmPolicy: "open",
-        allowFrom: ["*"],
-        ...(params.approvers ? { execApprovals: { approvers: params.approvers } } : {}),
-      },
-    },
+    channels: { whatsapp: { dmPolicy: "open", allowFrom: ["*"] } },
+    ...(params.approvers
+      ? { plugins: whatsappPluginEntries({ execApprovals: { approvers: params.approvers } }) }
+      : {}),
   } as never;
 }
 
@@ -62,23 +60,13 @@ describe("execApprovals config", () => {
     { name: "refuses_unknown_target", value: { target: "group" }, ok: false },
     { name: "refuses_unknown_key", value: { approver: [OWNER] }, ok: false },
   ])("$name", ({ value, ok }) => {
-    expect(WhatsAppConfigSchema.safeParse({ execApprovals: value }).success).toBe(ok);
-    expect(
-      WhatsAppConfigSchema.safeParse({ accounts: { biz: { execApprovals: value } } }).success,
-    ).toBe(ok);
+    expect(acceptsWhatsAppPluginConfig({ execApprovals: value })).toBe(ok);
   });
 
-  it("lets an account value replace the root value", () => {
-    const cfg = {
-      channels: {
-        whatsapp: {
-          execApprovals: { approvers: [OWNER] },
-          accounts: { other: { execApprovals: { approvers: [CONTACT] } } },
-        },
-      },
-    } as never;
-    expect(getWhatsAppExecApprovalApprovers({ cfg, accountId: "default" })).toEqual([OWNER]);
-    expect(getWhatsAppExecApprovalApprovers({ cfg, accountId: "other" })).toEqual([CONTACT]);
+  it("is a plugin setting, which the core-owned channels.whatsapp refuses", () => {
+    expect(WhatsAppConfigSchema.safeParse({ execApprovals: { approvers: [OWNER] } }).success).toBe(
+      false,
+    );
   });
 });
 

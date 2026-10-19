@@ -14,6 +14,7 @@ import {
   formatWhatsAppOwnMessageTurnBody,
   type WhatsAppOwnMessage,
 } from "./own-messages.js";
+import { acceptsWhatsAppPluginConfig, whatsappPluginEntries } from "./plugin-config.test-helper.js";
 
 const memoryState = vi.hoisted(() => ({ namespaces: new Map<string, Map<string, unknown>>() }));
 const appendTranscript = vi.hoisted(() =>
@@ -123,10 +124,11 @@ describe("ownMessages config", () => {
     { name: "unknown_mode", value: "all", ok: false },
     { name: "object_form", value: { mode: "turn" }, ok: false },
   ])("$name", ({ value, ok }) => {
-    expect(WhatsAppConfigSchema.safeParse({ ownMessages: value }).success).toBe(ok);
-    expect(
-      WhatsAppConfigSchema.safeParse({ accounts: { biz: { ownMessages: value } } }).success,
-    ).toBe(ok);
+    expect(acceptsWhatsAppPluginConfig({ ownMessages: value })).toBe(ok);
+  });
+
+  it("is a plugin setting, which the core-owned channels.whatsapp refuses", () => {
+    expect(WhatsAppConfigSchema.safeParse({ ownMessages: "turn" }).success).toBe(false);
   });
 });
 
@@ -305,13 +307,8 @@ describe("own message handler", () => {
     return createWhatsAppOwnMessageHandler({
       cfg: {
         commands: { ownerAllowFrom },
-        channels: {
-          whatsapp: {
-            dmPolicy: "allowlist",
-            allowFrom: [OWNER, CONTACT],
-            ...(ownMessages ? { ownMessages } : {}),
-          },
-        },
+        channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: [OWNER, CONTACT] } },
+        ...(ownMessages ? { plugins: whatsappPluginEntries({ ownMessages }) } : {}),
       } as never,
       accountId: "default",
       verbose: false,

@@ -1,10 +1,8 @@
-// Plugin-local copy of src/config/zod-schema.providers-whatsapp.ts for the npm package: a
-// third-party plugin defines its own schema (plugin-sdk/bundled-channel-config-schema), and a
-// stock host's bundled copy lacks execApprovals and ownMessages. whatsapp-config-schema.test.ts
-// keeps both equal.
+// Plugin-local copy of OpenClaw's src/config/zod-schema.providers-whatsapp.ts for the npm package:
+// a third-party plugin defines its own schema. whatsapp-config-schema.test.ts keeps both equal.
+// The plugin's own settings live in openclaw.plugin.json configSchema (plugin-config.ts).
 import {
   buildChannelAccountSchemaParts,
-  buildChannelExecApprovalsSchema,
   buildChannelReactionShape,
   buildGroupEntrySchema,
   ChannelDeliveryStreamingConfigSchema,
@@ -34,11 +32,6 @@ const WhatsAppPluginHooksSchema = z
   })
   .optional();
 
-/** A phone number in E.164 form: "+", country code, subscriber number, 15 digits at most. */
-const WhatsAppE164Schema = z
-  .string()
-  .regex(/^\+[1-9]\d{1,14}$/, "expected an E.164 phone number such as +15550001234");
-
 const { accountShape, rootPolicyShape } = buildChannelAccountSchemaParts({
   omit: ["name"],
   allowFrom: z.array(z.string()).optional(),
@@ -57,10 +50,6 @@ const WhatsAppCommonShape = {
     reactionLevels: ["off", "ack", "minimal", "extensive"],
   }),
   pluginHooks: WhatsAppPluginHooksSchema,
-  execApprovals: buildChannelExecApprovalsSchema(WhatsAppE164Schema, {
-    notifyOrigin: z.boolean().optional(),
-  }),
-  ownMessages: z.enum(["off", "history", "turn"]).optional(),
 };
 
 const WhatsAppAccountSchema = z.strictObject({

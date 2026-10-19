@@ -29,6 +29,7 @@ import {
   waitForInboundWorkDrained,
   type InboxOnMessage,
 } from "./monitor-inbox.test-harness.js";
+import { whatsappPluginEntries } from "./plugin-config.test-helper.js";
 
 /** A WhatsApp send time in seconds, recent enough that its turn is not late. */
 const recentSeconds = (offset: number) => Math.floor(Date.now() / 1000) - 60 + offset;
@@ -118,9 +119,8 @@ describe("web monitor inbox delivery and dedupe", () => {
         });
       // Only a resolved approver settles a reaction; allowFrom admits senders only.
       mockLoadConfig.mockReturnValue({
-        channels: {
-          whatsapp: { allowFrom: ["*"], execApprovals: { approvers: ["+15551230000"] } },
-        },
+        channels: { whatsapp: { allowFrom: ["*"] } },
+        plugins: whatsappPluginEntries({ execApprovals: { approvers: ["+15551230000"] } }),
       });
       const onMessage = vi.fn();
       const queue = createWhatsAppDurableInboundQueue(DEFAULT_ACCOUNT_ID);

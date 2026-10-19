@@ -1,12 +1,14 @@
+import {
+  formatAgentEnvelope,
+  resolveEnvelopeFormatOptions,
+} from "openclaw/plugin-sdk/channel-inbound";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { getRuntimeConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { appendSessionTranscriptMessageByIdentityStrict } from "openclaw/plugin-sdk/session-transcript-runtime";
-import {
-  formatWhatsAppOwnMessageContent,
-  WHATSAPP_OWN_MESSAGE_SENDER_LABEL,
-  type WhatsAppOwnMessage,
-} from "./own-messages.js";
+import { formatWhatsAppOwnMessageContent, type WhatsAppOwnMessage } from "./own-messages.js";
+import { readWhatsAppPluginConfig } from "./plugin-config.js";
 import { createPerRuntimeStoreOpener } from "./plugin-keyed-store.js";
 import { getWhatsAppRuntime } from "./runtime.js";
 
@@ -102,15 +104,39 @@ function readOwnMessageKey(key: string): {
   return { accountId: value[0], peerE164: value[1], messageId: value[2] };
 }
 
-function messageText(message: StoredWhatsAppOwnMessage): string {
-  const content = formatWhatsAppOwnMessageContent(message);
-  const authorLabel =
-    message.author === "phone"
-      ? "[sent manually from the linked WhatsApp phone]"
-      : message.source === "whatsapp_system"
-        ? "[WhatsApp approval or status]"
-        : "[sent by the assistant from another chat]";
-  return `${WHATSAPP_OWN_MESSAGE_SENDER_LABEL}: ${authorLabel}${content ? ` ${content}` : ""}`;
+/** Default author names; the plugin config `historyAuthors` gives a deployment its own words, such as "Host". */
+const DEFAULT_HISTORY_AUTHORS = {
+  phone: "Typed on this number's phone",
+  ownerAgent: "Owner's AI agent",
+  approval: "Approval request",
+} as const;
+
+/**
+ * The author of an entry, where OpenClaw's envelope names who wrote a message. The core writes
+ * `(self)` there for the account's own messages, which the reading agent takes for its own words.
+ */
+function authorLabel(
+  message: StoredWhatsAppOwnMessage,
+  authors: { phone?: string; ownerAgent?: string; approval?: string } | undefined,
+): string {
+  if (message.author === "phone") {
+    return authors?.phone ?? DEFAULT_HISTORY_AUTHORS.phone;
+  }
+  if (message.source === "whatsapp_system") {
+    return authors?.approval ?? DEFAULT_HISTORY_AUTHORS.approval;
+  }
+  return authors?.ownerAgent ?? DEFAULT_HISTORY_AUTHORS.ownerAgent;
+}
+
+function messageText(message: StoredWhatsAppOwnMessage, cfg: OpenClawConfig): string {
+  const { historyAuthors } = readWhatsAppPluginConfig(cfg);
+  return formatAgentEnvelope({
+    channel: "WhatsApp",
+    from: message.peerE164,
+    timestamp: message.timestampMs,
+    body: `${authorLabel(message, historyAuthors)}: ${formatWhatsAppOwnMessageContent(message)}`,
+    envelope: resolveEnvelopeFormatOptions(cfg),
+  });
 }
 
 function resolveSessionMetadataContext(params: { accountId: string; peerE164: string }) {
@@ -162,7 +188,7 @@ async function appendStoredMessage(
     idempotencyLookup: "scan",
     message: {
       role: "assistant",
-      content: [{ type: "text", text: messageText(message) }],
+      content: [{ type: "text", text: messageText(message, cfg) }],
       timestamp: message.timestampMs,
       idempotencyKey,
     },
