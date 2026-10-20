@@ -16,6 +16,7 @@ import type { WhatsAppAttachedSocketSession } from "./socket-session.js";
 type WhatsAppAnswerTrackedMessage = {
   admission?: WhatsAppInboundAdmission;
   event: { id?: string; timestamp?: number };
+  payload?: { body?: string };
   platform: { senderE164?: string };
   ownMessage?: unknown;
 };
@@ -48,6 +49,7 @@ export function createWhatsAppAnswerTracker(deps: {
         ...(message.event.id ? { id: message.event.id } : {}),
         ...(message.event.timestamp !== undefined ? { sentAtMs: message.event.timestamp } : {}),
         receivedAtMs: Date.now(),
+        ...(message.payload?.body ? { text: message.payload.body } : {}),
       });
     }
   };

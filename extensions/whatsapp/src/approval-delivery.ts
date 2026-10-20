@@ -1,5 +1,4 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
-import { resolveGlobalMap } from "openclaw/plugin-sdk/global-singleton";
 import { getRuntimeConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import {
   asOptionalRecord,
@@ -36,41 +35,6 @@ function deliveryKey(runId: string, toolCallId: string, sessionKey: string): str
   return JSON.stringify([processIdentity, runId, toolCallId, sessionKey]);
 }
 
-/** What the model reads for a send whose run stopped before anyone approved its card. */
-export const WHATSAPP_UNAPPROVED_SEND_RESULT_TEXT =
-  "Not sent: the run stopped while this message waited for approval, so the recipient has not seen it.";
-
-type SendAwaitingApproval = { cardKey: string; allowSubmitted: boolean };
-
-// Keyed by session and tool call, the identities of a transcript tool result. Process-global
-// because the plugin loads in several module instances; a restart forgets it, and the core's
-// "outcome unknown" result then stands.
-const sendsAwaitingApproval = resolveGlobalMap<string, SendAwaitingApproval>(
-  Symbol.for("openclaw.whatsapp-for-business.sendsAwaitingApproval"),
-);
-
-const toolKey = (sessionKey: string, toolCallId: string) =>
-  JSON.stringify([sessionKey, toolCallId]);
-const cardKeyOf = (card: { accountId: string; messageId: string }) =>
-  JSON.stringify([card.accountId, card.messageId]);
-
-/**
- * Records that someone may have allowed the send behind a card. The core runs an allowed send
- * before it tells this channel the decision, so a WhatsApp reaction records its allow before it
- * submits it. An allow from another approval route reaches this channel only with the decision.
- */
-export function noteWhatsAppApprovalAllowSubmitted(card: {
-  accountId: string;
-  messageId: string;
-}): void {
-  const cardKey = cardKeyOf(card);
-  for (const send of sendsAwaitingApproval.values()) {
-    if (send.cardKey === cardKey) {
-      send.allowSubmitted = true;
-    }
-  }
-}
-
 export async function rememberWhatsAppApprovalDelivery(
   request: {
     toolName?: string | null;
@@ -96,10 +60,6 @@ export async function rememberWhatsAppApprovalDelivery(
   const key = deliveryKey(request.runId, request.toolCallId, request.sessionKey);
   await openStore(getWhatsAppRuntime()).register(key, { processIdentity, entry });
   entry.deliveryKey = key;
-  sendsAwaitingApproval.set(toolKey(request.sessionKey, request.toolCallId), {
-    cardKey: cardKeyOf(entry),
-    allowSubmitted: false,
-  });
 }
 
 export async function forgetWhatsAppApprovalDelivery(
@@ -182,30 +142,6 @@ export function registerWhatsAppApprovalDelivery(api: OpenClawPluginApi): void {
         }
       }
     }
-  });
-  // A new message that interrupts the run while the card waits leaves the send without a result,
-  // and the core records "outcome unknown". The send never ran, so the model reads that it was not
-  // sent and answers its questions again.
-  api.on("tool_result_persist", (event, ctx) => {
-    const toolCallId = event.toolCallId ?? ctx.toolCallId;
-    if (!toolCallId || !ctx.sessionKey) {
-      return;
-    }
-    const key = toolKey(ctx.sessionKey, toolCallId);
-    const send = sendsAwaitingApproval.get(key);
-    if (!send) {
-      return;
-    }
-    sendsAwaitingApproval.delete(key);
-    if (!event.isSynthetic || send.allowSubmitted || event.message.role !== "toolResult") {
-      return;
-    }
-    return {
-      message: {
-        ...event.message,
-        content: [{ type: "text", text: WHATSAPP_UNAPPROVED_SEND_RESULT_TEXT }],
-      },
-    };
   });
   api.on("after_tool_call", async (event, ctx) => {
     const runId = event.runId ?? ctx.runId;

@@ -13,6 +13,7 @@ import {
   updateWhatsAppMainLastRoute,
 } from "./inbound-dispatch.js";
 import { withWhatsAppOverdueAnswerContext } from "./overdue-answer-context.js";
+import { withWhatsAppUnansweredMessagesContext } from "./unanswered-messages-context.js";
 
 const runtimeConfig = vi.hoisted(() => ({ current: undefined as unknown }));
 const { readAgentRunTerminalOutcome } = vi.hoisted(() => ({
@@ -308,6 +309,26 @@ describe("prepared WhatsApp inbound boundary", () => {
       ],
     });
   });
+  it("gives the turn every message of the person that no delivered message answered", async () => {
+    const { ctxPayload } = await prepare({
+      msg: withWhatsAppUnansweredMessagesContext(message(), [
+        { receivedAtMs: 1, sentAtMs: Date.UTC(2026, 9, 20, 17, 21), text: "Check-in time?" },
+        { receivedAtMs: 2, sentAtMs: Date.UTC(2026, 9, 20, 17, 22), text: "And the door code?" },
+      ]),
+    });
+    expect(ctxPayload.ChannelStructuredContext).toEqual([
+      expect.objectContaining({
+        type: "unanswered_messages",
+        payload: expect.objectContaining({
+          messages: [
+            { sent_at: "2026-10-20T17:21:00.000Z", text: "Check-in time?" },
+            { sent_at: "2026-10-20T17:22:00.000Z", text: "And the door code?" },
+          ],
+        }),
+      }),
+    ]);
+  });
+
   it("tells a turn of an overdue answer why only the owner can be written to", async () => {
     runtimeConfig.current = {
       plugins: { entries: { "whatsapp-for-business": { config: { blockOverdueAnswers: true } } } },
