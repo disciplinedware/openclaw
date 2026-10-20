@@ -209,6 +209,8 @@ export function recordWhatsAppMessageSteered(person: WhatsAppAnswerPerson, sentA
  * need no answer. A turn that sent or tried to send leaves them as they are: a delivered answer
  * already answered them, and a handoff to the owner, a refused or an unapproved send leave them
  * waiting. A turn that ends after the answer became overdue handles nothing: the owner decides.
+ * A turn that ends while a newer message of the person waits handles nothing either: queue mode
+ * `interrupt` may have cancelled it before it chose, and the newer message's turn reads them all.
  * True when the turn handled the messages it read.
  */
 export async function recordWhatsAppTurnEnded(
@@ -225,11 +227,15 @@ export async function recordWhatsAppTurnEnded(
   }
   let handled = false;
   await updateAnswerState(person, (current) => {
-    if (decideOverdueAnswer(current, nowMs)) {
+    const readUpToMs = Math.max(...readSentAtMs);
+    if (
+      decideOverdueAnswer(current, nowMs) ||
+      current?.unanswered.some((message) => orderingTimeMs(message) > readUpToMs)
+    ) {
       return undefined;
     }
     handled = true;
-    return answerUpTo(current, Math.max(...readSentAtMs));
+    return answerUpTo(current, readUpToMs);
   });
   return handled;
 }
