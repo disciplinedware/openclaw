@@ -25,17 +25,19 @@ const UNANSWERED_MAX_MESSAGES = 100;
 /** An overdue answer: the earliest unanswered message's send time, absent when WhatsApp gave none. */
 export type WhatsAppOverdueAnswer = { earliestSentAtMs?: number };
 
-type UnansweredMessage = {
+export type WhatsAppUnansweredMessage = {
   id?: string;
   /** WhatsApp `messageTimestamp`; absent when WhatsApp gave none. */
   sentAtMs?: number;
   receivedAtMs: number;
+  /** The message's text, for the person's next turn; absent for a message without text. */
+  text?: string;
 };
 
 /** One person's state on one account, as stored. */
 type WhatsAppAnswerState = {
   /** The person's messages sent after the latest answer, earliest first. */
-  unanswered: UnansweredMessage[];
+  unanswered: WhatsAppUnansweredMessage[];
   /** When the latest message from the business number to the person was sent. */
   answeredAtMs?: number;
 };
@@ -95,7 +97,7 @@ async function updateAnswerState(
 }
 
 /** The time that orders a message against answers: its send time, else when it arrived. */
-const orderingTimeMs = (message: UnansweredMessage): number =>
+const orderingTimeMs = (message: WhatsAppUnansweredMessage): number =>
   message.sentAtMs ?? message.receivedAtMs;
 
 /**
@@ -126,7 +128,7 @@ export function resolveWhatsAppAnswerPerson(params: {
  */
 export async function recordWhatsAppUnansweredMessage(
   person: WhatsAppAnswerPerson,
-  message: UnansweredMessage,
+  message: WhatsAppUnansweredMessage,
 ): Promise<void> {
   await updateAnswerState(person, (current) => {
     const state = current ?? { unanswered: [] };
@@ -250,6 +252,13 @@ function decideOverdueAnswer(
     return undefined;
   }
   return earliestSentAtMs !== undefined ? { earliestSentAtMs } : {};
+}
+
+/** The person's messages sent after the latest answer, earliest first. */
+export async function readWhatsAppUnansweredMessages(
+  person: WhatsAppAnswerPerson,
+): Promise<WhatsAppUnansweredMessage[]> {
+  return (await openAnswerStateStore().lookup(buildKey(person)))?.unanswered ?? [];
 }
 
 /** The person's overdue answer at `nowMs`, or undefined when nothing of theirs is overdue. */

@@ -29,6 +29,7 @@ import type { AdmittedWebInboundMessage } from "../../inbound/types.js";
 import {
   formatWhatsAppOverdueSince,
   readWhatsAppOverdueAnswer,
+  readWhatsAppUnansweredMessages,
   recordWhatsAppMessageSteered,
   recordWhatsAppTurnEnded,
   resolveWhatsAppAnswerPerson,
@@ -82,6 +83,7 @@ import {
   createWhatsAppStatusReactionController,
   type StatusReactionController,
 } from "./status-reaction.js";
+import { withWhatsAppUnansweredMessagesContext } from "./unanswered-messages-context.js";
 
 const WHATSAPP_MESSAGE_RECEIVED_HOOK_LIMITS = {
   maxConcurrency: 8,
@@ -427,7 +429,10 @@ export async function processMessage(params: {
     groupHistoryLimit: params.groupHistoryLimit,
     groupMemberRoster: params.groupMemberNames.get(params.groupHistoryKey),
     groupSystemPrompt: conversationSystemPrompt,
-    msg: withWhatsAppOverdueAnswerContext(params.msg),
+    msg: withWhatsAppUnansweredMessagesContext(
+      withWhatsAppOverdueAnswerContext(params.msg),
+      answerPerson ? await readWhatsAppUnansweredMessages(answerPerson) : [],
+    ),
     rawBody: commandBody,
     route: params.route,
     buildContext: params.buildContext,
