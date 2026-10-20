@@ -17,7 +17,7 @@ import {
   waitForInboundWorkDrained,
   waitForMessageCalls,
 } from "./monitor-inbox.test-harness.js";
-import { readWhatsAppOverdueAnswer } from "./overdue-answers.js";
+import { readWhatsAppOverdueAnswer, readWhatsAppUnansweredMessages } from "./overdue-answers.js";
 
 const CONTACT_JID = "15550000300@s.whatsapp.net";
 const OWNER_JID = "15550000200@s.whatsapp.net";
@@ -303,6 +303,39 @@ describe("overdue answers of direct chats", () => {
 
     expect(sock.sendMessage).toHaveBeenCalledTimes(1);
     await expect(readContactOverdue()).resolves.toBeUndefined();
+    await listener.close();
+  });
+
+  it("keeps the person's messages with their text until a delivered send answers them", async () => {
+    const { onMessage } = recordTurns();
+    const { listener, sock } = await startInboxMonitor(onMessage);
+    sock.sendMessage.mockImplementation(async (_jid: string, content: { text?: string }) => ({
+      key: { id: "sent-1", fromMe: true },
+      message: { conversation: content.text },
+    }));
+    const firstAtMs = minutesAgo(2);
+    const secondAtMs = minutesAgo(1);
+
+    emit(sock, "notify", [{ id: "first", remoteJid: CONTACT_JID, sentAtMs: firstAtMs }]);
+    emit(sock, "notify", [{ id: "second", remoteJid: CONTACT_JID, sentAtMs: secondAtMs }]);
+    await waitForMessageCalls(onMessage, 2);
+    await waitForInboundWorkDrained();
+    await expect(readWhatsAppUnansweredMessages(CONTACT)).resolves.toEqual([
+      expect.objectContaining({
+        id: "first",
+        sentAtMs: toWireMs(firstAtMs),
+        text: "text of first",
+      }),
+      expect.objectContaining({
+        id: "second",
+        sentAtMs: toWireMs(secondAtMs),
+        text: "text of second",
+      }),
+    ]);
+
+    await listener.sendMessage(CONTACT.personE164, "Both answered.");
+
+    await expect(readWhatsAppUnansweredMessages(CONTACT)).resolves.toEqual([]);
     await listener.close();
   });
 
