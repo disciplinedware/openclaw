@@ -8,6 +8,14 @@ Versions follow the upstream OpenClaw version they build on, with OpenClaw's cor
 
 ## [Unreleased]
 
+### Added
+
+- Message cards show the recipient's unanswered messages above the proposal (`approvalUnansweredMessageLimit`, default 10), with the sender and local times. A card cancelled before a decision reads `🔄 Cancelled before a decision.` and becomes `🔄 Updated below.` when a newer card for the same recipient follows; the session's next turn receives its cancelled proposals (`cancelled_proposals`); an expired card gets one reminder of who waits; a reaction on a closed card gets the answer that nothing was sent.
+
+### Changed
+
+- A rejection reads `❌ Rejected.` instead of `❌ Not run.`, and an expiry `⏱️ Expired without an answer.` without the request for a new proposal, which made the agent propose again every five minutes.
+
 ### Fixed
 
 - While a person has several messages that no delivered message answered, each turn receives them, with their text, as channel structured context (`unanswered_messages`). Under queue mode `interrupt` a new message cancelled the proposal for the earlier ones, and the agent took the cancelled proposal for a delivered answer and answered only the newest message.

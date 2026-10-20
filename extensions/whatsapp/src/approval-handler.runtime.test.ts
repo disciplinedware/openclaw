@@ -1,6 +1,7 @@
 import { createChannelApprovalHandlerFromCapability } from "openclaw/plugin-sdk/approval-handler-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { recordWhatsAppApprovalReactionDecision } from "./approval-cards.js";
 import { whatsappApprovalNativeRuntime } from "./approval-handler.runtime.js";
 import { whatsappApprovalCapability } from "./approval-native.js";
 import { createMemoryPluginStateRuntime } from "./plugin-state.test-helper.js";
@@ -221,31 +222,39 @@ describe("whatsappApprovalNativeRuntime", () => {
   });
 
   it.each([
-    ["allow-once", "✅ Approved."],
-    ["deny", "❌ Not run."],
-  ] as const)("tells how a plugin approval ended: %s", async (decision, text) => {
-    const result = await whatsappApprovalNativeRuntime.presentation.buildResolvedResult({
-      request: { id: "plugin:abc123" },
-      resolved: { id: "plugin:abc123", decision },
-      view: { approvalKind: "plugin" },
-    } as never);
+    ["allow-once", true, "allow-once", "✅ Approved."],
+    ["deny", true, "deny", "❌ Rejected."],
+    ["deny", false, "cancelled", "🔄 Cancelled before a decision."],
+  ] as const)(
+    "tells how a plugin approval ended: %s, decided by a reaction %s",
+    async (decision, byReaction, outcome, text) => {
+      if (byReaction) {
+        recordWhatsAppApprovalReactionDecision("plugin:abc123");
+      }
+      const result = await whatsappApprovalNativeRuntime.presentation.buildResolvedResult({
+        request: { id: "plugin:abc123" },
+        resolved: { id: "plugin:abc123", decision },
+        view: { approvalKind: "plugin" },
+      } as never);
 
-    expect(result).toEqual({
-      kind: "update",
-      payload: { text, deliveryPending: decision !== "deny" },
-    });
-  });
+      expect(result).toEqual({
+        kind: "update",
+        payload: { text, outcome, deliveryPending: decision !== "deny" },
+      });
+    },
+  );
 
   it.each([
     ["allow-once", "✅ Aprobado."],
     ["allow-always", "✅ Aprobado; no volveré a preguntar."],
-    ["deny", "❌ No se ejecutó."],
+    ["deny", "❌ Rechazado."],
   ] as const)("localizes a plugin approval outcome: %s", async (decision, text) => {
     runtimeConfig.current = {
       plugins: {
         entries: { "whatsapp-for-business": { config: { approvalLanguage: "es" } } },
       },
     };
+    recordWhatsAppApprovalReactionDecision("plugin:abc123");
     const result = await whatsappApprovalNativeRuntime.presentation.buildResolvedResult({
       request: { id: "plugin:abc123" },
       resolved: { id: "plugin:abc123", decision },
@@ -254,7 +263,7 @@ describe("whatsappApprovalNativeRuntime", () => {
 
     expect(result).toEqual({
       kind: "update",
-      payload: { text, deliveryPending: decision !== "deny" },
+      payload: { text, outcome: decision, deliveryPending: decision !== "deny" },
     });
   });
 
@@ -266,7 +275,7 @@ describe("whatsappApprovalNativeRuntime", () => {
 
     expect(result).toEqual({
       kind: "update",
-      payload: { text: "⏱️ Approval expired: not run. Request a new proposal to continue." },
+      payload: { outcome: "expired", text: "⏱️ Expired without an answer." },
     });
   });
 
@@ -307,9 +316,7 @@ describe("whatsappApprovalNativeRuntime", () => {
 
     expect(result).toEqual({
       kind: "update",
-      payload: {
-        text: "⏱️ La aprobación caducó: no se ejecutó. Solicita una nueva propuesta para continuar.",
-      },
+      payload: { outcome: "expired", text: "⏱️ Caducó sin respuesta." },
     });
   });
 
@@ -647,5 +654,91 @@ describe("whatsappApprovalNativeRuntime delivery", () => {
     );
     expect(sendMessage.mock.calls[0]?.[1]).toBe("Approve message?");
     vi.restoreAllMocks();
+  });
+});
+
+describe("whatsappApprovalNativeRuntime message cards", () => {
+  it("shows the guest's messages, replaces a cancelled card and reminds once on expiry", async () => {
+    const runtime = await import("./runtime.js");
+    const state = createMemoryPluginStateRuntime();
+    vi.spyOn(runtime, "getWhatsAppRuntime").mockReturnValue(state.runtime as never);
+    vi.spyOn(runtime, "getOptionalWhatsAppRuntime").mockReturnValue(state.runtime as never);
+    const { recordWhatsAppUnansweredMessage } = await import("./overdue-answers.js");
+    const send = await import("./send.js");
+    const remoteJid = "79262070342@s.whatsapp.net";
+    let serial = 0;
+    const sendMessage = vi
+      .spyOn(send, "sendMessageWhatsApp")
+      .mockImplementation(
+        async () => ({ messageId: `card-${++serial}`, toJid: remoteJid }) as never,
+      );
+    vi.spyOn(send, "sendTypingWhatsApp").mockResolvedValue(undefined as never);
+    const edit = vi.spyOn(send, "editMessageWhatsApp").mockResolvedValue(undefined);
+    const guest = "+5219902410673";
+    const minute = (value: number) => Date.UTC(2026, 9, 20, 21, value);
+    await recordWhatsAppUnansweredMessage(
+      { accountId: "default", personE164: guest },
+      {
+        id: "m1",
+        sentAtMs: minute(15),
+        receivedAtMs: minute(15),
+        text: "Когда заселение?",
+        senderName: "Lika",
+      },
+    );
+    const cfg = { agents: { defaults: { userTimezone: "America/Cancun" } } };
+    const { transport } = whatsappApprovalNativeRuntime;
+    const deliver = async (id: string) =>
+      await transport.deliverPending({
+        cfg: cfg as never,
+        preparedTarget: { to: "+79262070342", accountId: "default" },
+        pendingPayload: { reactionPayload: { text: "Approve message?", allowedDecisions: [] } },
+        request: {
+          id,
+          request: {
+            title: "Approve message?",
+            description: "💬 Заселение с 15:00.",
+            sessionKey: "agent:assistant:whatsapp:default:direct:+5219902410673",
+            scope: {
+              kind: "message-send",
+              target: "whatsapp",
+              recipientCount: 1,
+              recipients: [guest],
+            },
+          },
+        },
+      } as never);
+    try {
+      const first = await deliver("plugin:first");
+      expect(sendMessage.mock.calls[0]?.[1]).toBe(
+        "📥 Lika · +5219902410673\n16:15 Когда заселение?\n\nApprove message?",
+      );
+
+      await transport.updateEntry!({
+        cfg: cfg as never,
+        entry: first,
+        payload: { outcome: "cancelled", text: "🔄 Cancelled before a decision." },
+      } as never);
+      const second = await deliver("plugin:second");
+      expect(edit).toHaveBeenLastCalledWith(remoteJid, "card-1", "🔄 Updated below.", {
+        cfg,
+        accountId: "default",
+      });
+
+      const sentBefore = sendMessage.mock.calls.length;
+      await transport.updateEntry!({
+        cfg: cfg as never,
+        entry: second,
+        payload: { outcome: "expired", text: "⏱️ Expired without an answer." },
+      } as never);
+      expect(sendMessage).toHaveBeenCalledTimes(sentBefore + 1);
+      expect(sendMessage).toHaveBeenLastCalledWith(
+        "+79262070342",
+        "⏳ Lika has been waiting for an answer since 16:15.",
+        expect.objectContaining({ quotedMessageKey: expect.objectContaining({ id: "card-2" }) }),
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

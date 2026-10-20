@@ -9,6 +9,7 @@ import { WHATSAPP_FOR_BUSINESS_PLUGIN_ID } from "./plugin-id.js";
 export type WhatsAppPluginConfig = {
   blockOverdueAnswers?: boolean;
   approvalLanguage?: "en" | "es";
+  approvalUnansweredMessageLimit?: number;
   unhandledApprovalPolicy?: "block" | "send";
   execApprovals?: {
     enabled?: boolean | "auto";

@@ -23,11 +23,18 @@ import { createPluginStateErrorReporter } from "openclaw/plugin-sdk/plugin-state
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { normalizeUniqueTrimmedStringList } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveWhatsAppAccount } from "./accounts.js";
+import {
+  forgetWhatsAppApprovalReactionDecision,
+  isWhatsAppApprovalCardClosed,
+  recordWhatsAppApprovalReactionDecision,
+} from "./approval-cards.js";
 import { whatsappApprovalCapability } from "./approval-native.js";
+import { buildWhatsAppClosedApprovalCardReactionText } from "./approval-text.js";
 import { getWhatsAppExecApprovalApprovers } from "./exec-approvals.js";
 import { listWhatsAppDeliveredMessageIdentities } from "./inbound/send-result.js";
 import { WHATSAPP_FOR_BUSINESS_PLUGIN_ID } from "./plugin-id.js";
 import { getOptionalWhatsAppRuntime } from "./runtime.js";
+import { sendMessageWhatsApp } from "./send.js";
 
 const PERSISTENT_NAMESPACE = "whatsapp.approval-reactions";
 const PERSISTENT_MAX_ENTRIES = 1000;
@@ -406,7 +413,7 @@ export async function maybeResolveWhatsAppApprovalReaction(params: {
     logVerboseMessage: params.logVerboseMessage,
   });
   if (!target) {
-    return false;
+    return await answerReactionOnClosedCard(params, event);
   }
 
   const actorId = await params.resolveInboundJid(event.actorJid);
@@ -417,39 +424,93 @@ export async function maybeResolveWhatsAppApprovalReaction(params: {
     return true;
   }
 
-  await settleApprovalReaction({
-    request: {
-      cfg: params.cfg,
-      approvalId: target.approvalId,
-      approvalKind: target.approvalKind,
-      decision: target.decision,
-      channel: "whatsapp",
-      accountId: params.accountId,
-      senderId: actorId,
-      gatewayUrl: params.gatewayUrl,
-    },
-    approvers: getWhatsAppExecApprovalApprovers({ cfg: params.cfg, accountId: params.accountId }),
-    authorizeActorAction: (input) =>
-      whatsappApprovalCapability.authorizeActorAction?.(input) ?? { authorized: false },
-    loadResolver: loadResolveApprovalOverGateway,
-    clearTarget: () =>
-      unregisterWhatsAppApprovalReactionTarget({
+  // The mark must exist before the resolution event it explains; a reaction that resolved nothing
+  // (an unauthorized actor, a lost race, an error) leaves no mark behind.
+  recordWhatsAppApprovalReactionDecision(target.approvalId);
+  let settled: Awaited<ReturnType<typeof settleApprovalReaction>> | undefined;
+  try {
+    settled = await settleApprovalReaction({
+      request: {
+        cfg: params.cfg,
+        approvalId: target.approvalId,
+        approvalKind: target.approvalKind,
+        decision: target.decision,
+        channel: "whatsapp",
         accountId: params.accountId,
-        remoteJid: target.remoteJid,
-        messageId: event.messageId,
-      }),
-    onResolved: (result) => {
-      const canonicalDecision =
-        "decision" in result.approval ? ` decision=${result.approval.decision}` : "";
-      params.logVerboseMessage?.(
-        result.applied
-          ? `whatsapp: approval reaction applied id=${target.approvalId} sender=${actorId} status=${result.approval.status}${canonicalDecision}`
-          : `whatsapp: approval reaction already resolved id=${target.approvalId} sender=${actorId} status=${result.approval.status}${canonicalDecision}`,
-      );
-    },
-    logVerboseMessage: params.logVerboseMessage,
-  });
+        senderId: actorId,
+        gatewayUrl: params.gatewayUrl,
+      },
+      approvers: getWhatsAppExecApprovalApprovers({ cfg: params.cfg, accountId: params.accountId }),
+      authorizeActorAction: (input) =>
+        whatsappApprovalCapability.authorizeActorAction?.(input) ?? { authorized: false },
+      loadResolver: loadResolveApprovalOverGateway,
+      clearTarget: () =>
+        unregisterWhatsAppApprovalReactionTarget({
+          accountId: params.accountId,
+          remoteJid: target.remoteJid,
+          messageId: event.messageId,
+        }),
+      onResolved: (result) => {
+        if (!result.applied) {
+          forgetWhatsAppApprovalReactionDecision(target.approvalId);
+        }
+        const canonicalDecision =
+          "decision" in result.approval ? ` decision=${result.approval.decision}` : "";
+        params.logVerboseMessage?.(
+          result.applied
+            ? `whatsapp: approval reaction applied id=${target.approvalId} sender=${actorId} status=${result.approval.status}${canonicalDecision}`
+            : `whatsapp: approval reaction already resolved id=${target.approvalId} sender=${actorId} status=${result.approval.status}${canonicalDecision}`,
+        );
+      },
+      logVerboseMessage: params.logVerboseMessage,
+    });
+  } finally {
+    if (settled !== "resolved") {
+      forgetWhatsAppApprovalReactionDecision(target.approvalId);
+    }
+  }
   return true;
+}
+
+/**
+ * A decision reaction on a card whose approval already ended resolves nothing; the approver is told
+ * so, because the reaction looks as if it took effect. True when the reaction met such a card.
+ */
+async function answerReactionOnClosedCard(
+  params: {
+    cfg: OpenClawConfig;
+    accountId: string;
+    resolveInboundJid: (jid: string | null | undefined) => Promise<string | null>;
+  },
+  event: WhatsAppApprovalReactionEvent,
+): Promise<boolean> {
+  const decisionEmojis = listApprovalReactionBindings({
+    allowedDecisions: ["allow-once", "allow-always", "deny"],
+  }).map((binding) => binding.emoji);
+  if (!decisionEmojis.includes(event.reactionKey)) {
+    return false;
+  }
+  for (const remoteJid of event.remoteJids) {
+    if (
+      await isWhatsAppApprovalCardClosed({
+        accountId: params.accountId,
+        remoteJid,
+        messageId: event.messageId,
+      })
+    ) {
+      const actorId = await params.resolveInboundJid(event.actorJid);
+      if (actorId) {
+        await sendMessageWhatsApp(actorId, buildWhatsAppClosedApprovalCardReactionText(), {
+          cfg: params.cfg,
+          verbose: false,
+          accountId: params.accountId,
+          quotedMessageKey: { id: event.messageId, remoteJid, fromMe: true },
+        });
+      }
+      return true;
+    }
+  }
+  return false;
 }
 
 export function clearWhatsAppApprovalReactionTargetsForTest(): void {

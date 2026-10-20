@@ -381,6 +381,49 @@ describe("WhatsApp approval reactions", () => {
     });
   });
 
+  it("tells the approver that a reaction on a closed card sent nothing", async () => {
+    const { createMemoryPluginStateRuntime } = await import("./plugin-state.test-helper.js");
+    const { recordWhatsAppApprovalCardClosed } = await import("./approval-cards.js");
+    const send = await import("./send.js");
+    const state = createMemoryPluginStateRuntime();
+    vi.spyOn(whatsappRuntime, "getWhatsAppRuntime").mockReturnValue(state.runtime as never);
+    vi.spyOn(whatsappRuntime, "getOptionalWhatsAppRuntime").mockReturnValue(state.runtime as never);
+    const reply = vi
+      .spyOn(send, "sendMessageWhatsApp")
+      .mockResolvedValue({ messageId: "reply", toJid: "15551230000@s.whatsapp.net" });
+    const remoteJid = "15551230000@s.whatsapp.net";
+    await recordWhatsAppApprovalCardClosed(
+      {
+        accountId: "default",
+        remoteJid,
+        messageId: "approval-message",
+        recipients: ["+15550000300"],
+      },
+      "cancelled",
+      Date.now(),
+    );
+    try {
+      const handled = await maybeResolveWhatsAppApprovalReaction({
+        cfg: approvalConfig(["+15551230000"]),
+        accountId: "default",
+        msg: buildReactionMessage({ remoteJid }),
+        resolveInboundJid: async () => "+15551230000",
+      });
+
+      expect(handled).toBe(true);
+      expect(resolverMocks.resolveWhatsAppApproval).not.toHaveBeenCalled();
+      expect(reply).toHaveBeenCalledExactlyOnceWith(
+        "+15551230000",
+        "This card is no longer active; nothing was sent.",
+        expect.objectContaining({
+          quotedMessageKey: { id: "approval-message", remoteJid, fromMe: true },
+        }),
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("does not use a group reaction actor as a direct-chat target candidate", async () => {
     await registerExecApprovalTarget({ remoteJid: "15551230000@s.whatsapp.net" });
     const lidLookup: LidLookup = {
@@ -524,6 +567,9 @@ describe("WhatsApp approval reactions", () => {
 
     expect(handled).toBe(true);
     expect(resolverMocks.resolveWhatsAppApproval).not.toHaveBeenCalled();
+    // A refused reaction leaves no mark that would show a later cancellation as a rejection.
+    const { consumeWhatsAppApprovalReactionDecision } = await import("./approval-cards.js");
+    expect(consumeWhatsAppApprovalReactionDecision("exec-1")).toBe(false);
   });
 
   it("requires explicit approvers for group approval reactions", async () => {
