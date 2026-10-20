@@ -15,6 +15,7 @@ import { resolveDefaultWhatsAppAccountId } from "./accounts.js";
 import { getActiveWebListener } from "./active-listener.js";
 import {
   forgetWhatsAppApprovalDelivery,
+  noteWhatsAppApprovalAllowSubmitted,
   rememberWhatsAppApprovalDelivery,
 } from "./approval-delivery.js";
 import { recordWhatsAppApprovalHistory, type WhatsAppApprovalMessage } from "./approval-history.js";
@@ -172,7 +173,9 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
       return entry;
     },
     updateEntry: async ({ cfg, entry, payload }) => {
-      if (!payload.deliveryPending) {
+      if (payload.deliveryPending) {
+        noteWhatsAppApprovalAllowSubmitted(entry);
+      } else {
         await forgetWhatsAppApprovalDelivery(entry);
       }
       try {

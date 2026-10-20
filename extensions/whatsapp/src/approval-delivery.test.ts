@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { registerWhatsAppApprovalDelivery } from "./approval-delivery.js";
+import {
+  noteWhatsAppApprovalAllowSubmitted,
+  registerWhatsAppApprovalDelivery,
+  WHATSAPP_UNAPPROVED_SEND_RESULT_TEXT,
+} from "./approval-delivery.js";
 import { whatsappApprovalNativeRuntime } from "./approval-handler.runtime.js";
 import { createMemoryPluginStateRuntime } from "./plugin-state.test-helper.js";
 
@@ -19,6 +23,20 @@ beforeEach(() => {
     channels: { whatsapp: {} },
   };
 });
+
+type PersistHook = (
+  event: Record<string, unknown>,
+  context: Record<string, unknown>,
+) => { message?: { role: string; content: unknown } } | undefined;
+
+const interruptedResult = {
+  role: "toolResult",
+  toolCallId: "call-1",
+  toolName: "message",
+  content: [{ type: "text", text: "Tool call interrupted before a result was recorded" }],
+  isError: true,
+  timestamp: 1,
+};
 
 async function fixture() {
   const state = createMemoryPluginStateRuntime();
@@ -91,7 +109,18 @@ async function fixture() {
       payload: result.payload,
     } as never);
   };
-  return { sent, edited, settle, resolve, callbacks, logger, state };
+  const persist = (overrides: Record<string, unknown> = {}, context = { sessionKey }) =>
+    (callbacks.get("tool_result_persist") as unknown as PersistHook)(
+      {
+        toolName: "message",
+        toolCallId: "call-1",
+        isSynthetic: true,
+        message: interruptedResult,
+        ...overrides,
+      },
+      context,
+    );
+  return { sent, edited, settle, resolve, persist, callbacks, logger, state };
 }
 
 describe("WhatsApp approved delivery receipts", () => {
@@ -234,5 +263,43 @@ describe("WhatsApp approved delivery receipts", () => {
     expect(f.sent.mock.calls[1]?.[1]).toContain("Delivery could not be confirmed");
     expect(f.sent.mock.calls[1]?.[1]).not.toContain("Approved");
     expect(await store.entries()).toEqual([]);
+  });
+});
+
+describe("WhatsApp sends interrupted while their card waits", () => {
+  const notSent = [{ type: "text", text: WHATSAPP_UNAPPROVED_SEND_RESULT_TEXT }];
+
+  it("records a send nobody approved as not sent", async () => {
+    const f = await fixture();
+    expect(f.persist()?.message).toEqual({ ...interruptedResult, content: notSent });
+  });
+
+  it.each([
+    [
+      "a WhatsApp reaction allow",
+      () => noteWhatsAppApprovalAllowSubmitted({ accountId: "default", messageId: "card-1" }),
+    ],
+    ["an allow decision from another route", undefined],
+  ])("keeps the core's unknown outcome after %s", async (_name, allow) => {
+    const f = await fixture();
+    if (allow) {
+      allow();
+    } else {
+      await f.resolve("allow-once");
+    }
+    expect(f.persist()).toBeUndefined();
+  });
+
+  it("keeps a recorded result and forgets the send", async () => {
+    const f = await fixture();
+    expect(f.persist({ isSynthetic: false })).toBeUndefined();
+    expect(f.persist()).toBeUndefined();
+  });
+
+  it("ignores another session and tool call", async () => {
+    const f = await fixture();
+    expect(f.persist({ toolCallId: "other-call" })).toBeUndefined();
+    expect(f.persist({}, { sessionKey: "other-session" })).toBeUndefined();
+    expect(f.persist()?.message?.content).toEqual(notSent);
   });
 });

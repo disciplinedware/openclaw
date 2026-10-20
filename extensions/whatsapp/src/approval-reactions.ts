@@ -22,6 +22,7 @@ import { createPluginStateErrorReporter } from "openclaw/plugin-sdk/plugin-state
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { normalizeUniqueTrimmedStringList } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveWhatsAppAccount } from "./accounts.js";
+import { noteWhatsAppApprovalAllowSubmitted } from "./approval-delivery.js";
 import { whatsappApprovalCapability } from "./approval-native.js";
 import { getWhatsAppExecApprovalApprovers } from "./exec-approvals.js";
 import { listWhatsAppDeliveredMessageIdentities } from "./inbound/send-result.js";
@@ -398,6 +399,9 @@ export async function maybeResolveWhatsAppApprovalReaction(params: {
     return true;
   }
 
+  if (target.decision !== "deny") {
+    noteWhatsAppApprovalAllowSubmitted({ accountId: params.accountId, messageId: event.messageId });
+  }
   await settleApprovalReaction({
     request: {
       cfg: params.cfg,
