@@ -19,6 +19,9 @@ const resolverMocks = vi.hoisted(() => ({
   isApprovalNotFoundError: vi.fn(() => false),
 }));
 
+const allowNotes = vi.hoisted(() => vi.fn());
+vi.mock("./approval-delivery.js", () => ({ noteWhatsAppApprovalAllowSubmitted: allowNotes }));
+
 vi.mock("openclaw/plugin-sdk/approval-gateway-runtime", () => ({
   resolveApprovalOverGateway: resolverMocks.resolveWhatsAppApproval,
 }));
@@ -90,6 +93,7 @@ describe("WhatsApp approval reactions", () => {
     });
     resolverMocks.isApprovalNotFoundError.mockReset();
     resolverMocks.isApprovalNotFoundError.mockReturnValue(false);
+    allowNotes.mockReset();
   });
 
   it("registers reaction state when only allow-always is available", async () => {
@@ -313,6 +317,14 @@ describe("WhatsApp approval reactions", () => {
       senderId: "+15551230001",
       gatewayUrl: undefined,
     });
+    // The core may run the allowed send before the channel hears the decision.
+    expect(allowNotes).toHaveBeenCalledExactlyOnceWith({
+      accountId: "default",
+      messageId: "approval-message",
+    });
+    expect(allowNotes.mock.invocationCallOrder[0]).toBeLessThan(
+      resolverMocks.resolveWhatsAppApproval.mock.invocationCallOrder[0]!,
+    );
   });
 
   it.each([

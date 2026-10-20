@@ -10,6 +10,7 @@ Versions follow the upstream OpenClaw version they build on, with OpenClaw's cor
 
 ### Fixed
 
+- A message send that a stopped run left waiting on its approval card records "Not sent" instead of OpenClaw's "outcome unknown, verify instead of repeating". Under queue mode `interrupt`, the agent took the cancelled proposal for a delivered answer and answered only the newest message.
 - History entries (phone-typed messages, the owner agent's sends, approval prompts and outcomes) are custom messages (`whatsapp.history`), not assistant messages. As assistant messages, transcript repair could place one between a tool result and a system update, which Anthropic refuses with a 400.
 
 ### Added

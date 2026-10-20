@@ -23,6 +23,7 @@ The receipt matches the native run, session and tool-call identities. Authorizat
 The approval edit and receipt can arrive in either order. A successful receipt explicitly states both approval and sending.
 Failed receipt delivery stays in the retained outbox for startup recovery. Recovery never retries the original operation.
 An interrupted process without a settled result produces an unknown outcome, not a successful-send claim.
+A run that stops while its send waits on the card, for example a new message under queue mode `interrupt`, leaves the send without a result. OpenClaw then records "outcome unknown". The plugin rewrites that result (`tool_result_persist`) to "Not sent", so the next turn answers what the unsent message covered. After an allow reaction, or an allow the card has heard of, the unknown outcome stands: the core may have started the send. An allow from another route (`/approve`, the Web UI) in the same instant as the stop can reach the card too late; the plugin then reports "Not sent" for a send that ran.
 Receipt recovery is at least once: a crash after transport acceptance can repeat a status notice.
 Cards and status notices enter the owner's native transcript with source and recipient conversation references. These references remain history-only.
 
