@@ -11,6 +11,7 @@ Versions follow the upstream OpenClaw version they build on, with OpenClaw's cor
 ### Fixed
 
 - While a person has several messages that no delivered message answered, each turn receives them, with their text, as channel structured context (`unanswered_messages`). Under queue mode `interrupt` a new message cancelled the proposal for the earlier ones, and the agent took the cancelled proposal for a delivered answer and answered only the newest message.
+- A turn that sends nothing no longer marks its messages answered while a newer message of the person waits. Under queue mode `interrupt` the new message cancelled the turn before it chose anything, the cancelled turn counted as silence, and its messages left the `unanswered_messages` list: the agent answered only the last two questions.
 - History entries (phone-typed messages, the owner agent's sends, approval prompts and outcomes) are custom messages (`whatsapp.history`), not assistant messages. As assistant messages, transcript repair could place one between a tool result and a system update, which Anthropic refuses with a 400.
 
 ### Changed

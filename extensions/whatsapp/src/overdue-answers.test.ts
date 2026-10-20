@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listWhatsAppOverdueAnswers,
   readWhatsAppOverdueAnswer,
+  readWhatsAppUnansweredMessages,
   recordWhatsAppAnswer,
   recordWhatsAppMessageSteered,
   recordWhatsAppTurnEnded,
@@ -159,14 +160,15 @@ describe("overdue answers", () => {
     await expect(readWhatsAppOverdueAnswer(contact, NOW_MS)).resolves.toBeUndefined();
   });
 
-  it("keeps a message that arrived after the turn's messages waiting for its own turn", async () => {
+  it("keeps the turn's messages waiting while a newer message waits: its turn answers them all", async () => {
     await receive(minutesBefore(20), "question");
     await receive(minutesBefore(19), "follow-up");
     await recordWhatsAppTurnEnded(contact, silentTurn(minutesBefore(20)), minutesBefore(18));
 
-    await expect(readWhatsAppOverdueAnswer(contact, NOW_MS)).resolves.toEqual({
-      earliestSentAtMs: minutesBefore(19),
-    });
+    await expect(readWhatsAppUnansweredMessages(contact)).resolves.toEqual([
+      expect.objectContaining({ sentAtMs: minutesBefore(20) }),
+      expect.objectContaining({ sentAtMs: minutesBefore(19) }),
+    ]);
   });
 
   it("handles nothing when the turn ends after the answer became overdue: the owner decides", async () => {
