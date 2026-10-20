@@ -161,7 +161,7 @@ describe("whatsappApprovalNativeRuntime", () => {
     });
 
     expect(payload.reactionPayload.text).toBe(
-      `¿Enviar mensaje?\n\n${description}\n\nReacciona con:\n\n👍 Enviar\n👎 Rechazar\n\nTienes 1 minuto para responder.`,
+      `¿Enviar mensaje?\n\n${description}\n\n👍 Enviar · 👎 Rechazar · 1 min`,
     );
     expect(payload.reactionPayload.allowedDecisions).toEqual(["allow-once", "deny"]);
   });
@@ -215,7 +215,7 @@ describe("whatsappApprovalNativeRuntime", () => {
     });
 
     expect(payload.reactionPayload.text).toBe(
-      `${title}\n\n${description}\n\nReacciona con:\n\n👍 Aprobar una vez\n👎 Rechazar\n\nTienes 1 minuto para responder.`,
+      `${title}\n\n${description}\n\n👍 Aprobar una vez · 👎 Rechazar · 1 min`,
     );
     expect(payload.reactionPayload.allowedDecisions).toEqual(["allow-once", "deny"]);
   });

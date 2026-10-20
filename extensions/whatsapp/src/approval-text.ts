@@ -82,7 +82,7 @@ function buildReactionHint(
           : SPANISH_REACTION_LABELS[binding.decision]
       }`,
   );
-  return `Reacciona con:\n\n${labels.join("\n")}`;
+  return labels.join(" · ");
 }
 
 /**
@@ -102,11 +102,17 @@ export function buildWhatsAppPluginApprovalText(params: {
   const title = language === "es" && isMessageApproval ? "¿Enviar mensaje?" : params.title;
   const minutesLeft = Math.max(1, Math.ceil((params.expiresAtMs - params.nowMs) / 60_000));
   const reactionHint = buildReactionHint(params.allowedDecisions, language, isMessageApproval);
-  const timeLeft =
+  // Spanish cards answer on one line: the reactions, then the minutes left.
+  const answer =
     language === "es"
-      ? `Tienes ${minutesLeft} ${minutesLeft === 1 ? "minuto" : "minutos"} para responder.`
-      : `You have ${minutesLeft} ${minutesLeft === 1 ? "minute" : "minutes"} to answer.`;
-  return [title, params.description?.trim(), reactionHint, timeLeft].filter(Boolean).join("\n\n");
+      ? [reactionHint, `${minutesLeft} min`].filter(Boolean).join(" · ")
+      : [
+          reactionHint,
+          `You have ${minutesLeft} ${minutesLeft === 1 ? "minute" : "minutes"} to answer.`,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+  return [title, params.description?.trim(), answer].filter(Boolean).join("\n\n");
 }
 
 /** How a plugin approval ended, sent as a reply to its prompt. */
