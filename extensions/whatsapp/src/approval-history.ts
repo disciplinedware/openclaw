@@ -1,4 +1,5 @@
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
+import type { WhatsAppApprovalCard } from "./approval-cards.js";
 import { recordWhatsAppAssistantMessageHistory } from "./own-message-history.js";
 
 const log = createSubsystemLogger("whatsapp/approvals");
@@ -12,6 +13,8 @@ export type WhatsAppApprovalMessage = {
   sourceSessionKey?: string;
   recipientSessionKeys?: string[];
   deliveryKey?: string;
+  /** The message approval card's recipients and proposal; absent for other approvals. */
+  card?: WhatsAppApprovalCard;
 };
 
 export async function recordWhatsAppApprovalHistory(

@@ -4,7 +4,7 @@ import { getRuntimeConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { isWhatsAppCommandOwner, normalizeWhatsAppDirectId } from "./command-owner.js";
 import type { WhatsAppInboundAdmission } from "./inbound/admission.js";
 import { readWhatsAppPluginConfig } from "./plugin-config.js";
-import { createPerRuntimeStoreOpener } from "./plugin-keyed-store.js";
+import { createKeyedWriteQueue, createPerRuntimeStoreOpener } from "./plugin-keyed-store.js";
 import { getWhatsAppRuntime } from "./runtime.js";
 
 /**
@@ -12,7 +12,7 @@ import { getWhatsAppRuntime } from "./runtime.js";
  * sent more than this before now. Same fence as iMessage's
  * `IMESSAGE_STALE_INBOUND_THRESHOLD_MS`.
  */
-const WHATSAPP_OVERDUE_ANSWER_THRESHOLD_MS = 15 * 60 * 1000;
+export const WHATSAPP_OVERDUE_ANSWER_THRESHOLD_MS = 15 * 60 * 1000;
 
 const UNANSWERED_NAMESPACE = "whatsapp.unanswered-messages";
 /** Bounds the store across all accounts; the least recently written person goes first. */
@@ -30,8 +30,12 @@ export type WhatsAppUnansweredMessage = {
   /** WhatsApp `messageTimestamp`; absent when WhatsApp gave none. */
   sentAtMs?: number;
   receivedAtMs: number;
-  /** The message's text, for the person's next turn; absent for a message without text. */
+  /** The message's text, for the person's next turn and the approval card; absent without text. */
   text?: string;
+  /** The media kind of a message that carries media, such as `audio` or `image`. */
+  mediaKind?: string;
+  /** The sender's WhatsApp display name when the message arrived. */
+  senderName?: string;
 };
 
 /** One person's state on one account, as stored. */
@@ -66,11 +70,8 @@ export type WhatsAppAnswerPerson = { accountId: string; personE164: string };
 const buildKey = (person: WhatsAppAnswerPerson): string =>
   JSON.stringify([person.accountId, person.personE164]);
 
-// The channel runtime writes from inbound and send paths that run concurrently, so writes of one
-// key are serialized; the chain is process-global because the plugin loads in several module
-// instances.
-const writeChains = resolveGlobalMap<string, Promise<void>>(
-  Symbol.for("openclaw.whatsapp-for-business.unansweredMessageWrites"),
+const queueAnswerStateWrite = createKeyedWriteQueue(
+  "openclaw.whatsapp-for-business.unansweredMessageWrites",
 );
 
 async function updateAnswerState(
@@ -78,22 +79,13 @@ async function updateAnswerState(
   change: (current: WhatsAppAnswerState | undefined) => WhatsAppAnswerState | undefined,
 ): Promise<void> {
   const key = buildKey(person);
-  const previous = writeChains.get(key) ?? Promise.resolve();
-  const next = previous.then(async () => {
+  await queueAnswerStateWrite(key, async () => {
     const store = openAnswerStateStore();
     const updated = change(await store.lookup(key));
     if (updated) {
       await store.register(key, updated);
     }
   });
-  const settled = next.catch(() => {});
-  writeChains.set(key, settled);
-  void settled.then(() => {
-    if (writeChains.get(key) === settled) {
-      writeChains.delete(key);
-    }
-  });
-  await next;
 }
 
 /** The time that orders a message against answers: its send time, else when it arrived. */
@@ -172,15 +164,15 @@ function answerUpTo(
 }
 
 // The latest send time of the person's messages that joined the person's running turn (queue mode
-// `steer`); that turn's end handles them. Process-global for the same reason as `writeChains`.
+// `steer`); that turn's end handles them. Process-global because the plugin loads in several module instances.
 const steeredMessages = resolveGlobalMap<string, number>(
   Symbol.for("openclaw.whatsapp-for-business.steeredMessages"),
 );
 
 // The sessions whose turn put, or tried to put, something in front of anyone on WhatsApp since the
 // session's last turn end, the owner included. A turn the plugin does not end (a core follow-up)
-// leaves its send to the next turn end, which then handles nothing. Process-global for the same
-// reason as `writeChains`.
+// leaves its send to the next turn end, which then handles nothing. Process-global because the
+// plugin loads in several module instances.
 const sessionsWithTurnSend = resolveGlobalMap<string, true>(
   Symbol.for("openclaw.whatsapp-for-business.sessionsWithTurnSend"),
 );

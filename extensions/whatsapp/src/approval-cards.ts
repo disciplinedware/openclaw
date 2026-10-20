@@ -1,0 +1,184 @@
+import { resolveGlobalMap } from "openclaw/plugin-sdk/global-singleton";
+import { WHATSAPP_OVERDUE_ANSWER_THRESHOLD_MS } from "./overdue-answers.js";
+import { createKeyedWriteQueue, createPerRuntimeStoreOpener } from "./plugin-keyed-store.js";
+import { getOptionalWhatsAppRuntime, getWhatsAppRuntime } from "./runtime.js";
+
+/** A delivered message approval card, as the plugin needs it after its approval ends. */
+export type WhatsAppApprovalCard = {
+  accountId: string;
+  /** The approver's chat that shows the card. */
+  remoteJid: string;
+  messageId: string;
+  /** The E.164 numbers the proposed message goes to. */
+  recipients: string[];
+  /** The session whose run proposed the message. */
+  sourceSessionKey?: string;
+  /** The card's proposal as the approver read it. */
+  description?: string;
+};
+
+/** A proposal whose run stopped before the approver decided, so nothing was sent. */
+export type WhatsAppCancelledProposal = {
+  recipients: string[];
+  description?: string;
+  cancelledAtMs: number;
+};
+
+type StoredCards = {
+  /** Cards in one approver chat cancelled before a decision, until a newer card replaces them. */
+  cancelled?: WhatsAppApprovalCard[];
+  /** Set on a card whose approval ended, so a later reaction on it gets an answer. */
+  closed?: true;
+  /** One session's cancelled proposals, for its next turn. */
+  proposals?: WhatsAppCancelledProposal[];
+};
+
+const CARDS_MAX_ENTRIES = 5_000;
+const CARDS_TTL_MS = 24 * 60 * 60 * 1000;
+
+const openStoreForRuntime = createPerRuntimeStoreOpener((runtime) =>
+  runtime.state.openKeyedStore<StoredCards>({
+    namespace: "whatsapp.approval-cards",
+    maxEntries: CARDS_MAX_ENTRIES,
+    overflowPolicy: "evict-oldest",
+    defaultTtlMs: CARDS_TTL_MS,
+  }),
+);
+const openStore = () => openStoreForRuntime(getWhatsAppRuntime());
+// Reads run on every inbound message and reaction, also in a process that has not loaded the
+// plugin's runtime yet; such a process has no cards to read.
+const lookupStored = async (key: string): Promise<StoredCards | undefined> => {
+  const runtime = getOptionalWhatsAppRuntime();
+  return runtime ? await openStoreForRuntime(runtime).lookup(key) : undefined;
+};
+const queueWrite = createKeyedWriteQueue("openclaw.whatsapp-for-business.approvalCardWrites");
+
+// Keys are JSON arrays, so one account's or chat's values cannot match another's key.
+const closedKey = (accountId: string, remoteJid: string, messageId: string) =>
+  JSON.stringify(["closed", accountId, remoteJid, messageId]);
+const cancelledKey = (accountId: string, remoteJid: string) =>
+  JSON.stringify(["cancelled", accountId, remoteJid]);
+const proposalsKey = (sessionKey: string) => JSON.stringify(["proposals", sessionKey]);
+
+async function update(
+  key: string,
+  change: (current: StoredCards | undefined) => StoredCards | undefined,
+): Promise<void> {
+  await queueWrite(key, async () => {
+    const store = openStore();
+    const updated = change(await store.lookup(key));
+    if (updated) {
+      await store.register(key, updated);
+    }
+  });
+}
+
+const sharesRecipient = (recipients: readonly string[], other: readonly string[]) =>
+  recipients.some((recipient) => other.includes(recipient));
+
+/**
+ * Records the end of a card's approval. A card cancelled before a decision waits in its chat for
+ * the next card to the same recipient, which replaces it, and its proposal waits for the next turn
+ * of the session that proposed it.
+ */
+export async function recordWhatsAppApprovalCardClosed(
+  card: WhatsAppApprovalCard,
+  outcome: "decided" | "cancelled" | "expired",
+  nowMs: number,
+): Promise<void> {
+  await update(closedKey(card.accountId, card.remoteJid, card.messageId), () => ({ closed: true }));
+  if (outcome !== "cancelled") {
+    return;
+  }
+  await update(cancelledKey(card.accountId, card.remoteJid), (current) => ({
+    cancelled: [
+      ...(current?.cancelled ?? []).filter((known) => known.messageId !== card.messageId),
+      card,
+    ],
+  }));
+  if (card.sourceSessionKey) {
+    await update(proposalsKey(card.sourceSessionKey), (current) => ({
+      proposals: [
+        ...(current?.proposals ?? []),
+        { recipients: card.recipients, description: card.description, cancelledAtMs: nowMs },
+      ],
+    }));
+  }
+}
+
+/** Whether the card's approval already ended. */
+export async function isWhatsAppApprovalCardClosed(params: {
+  accountId: string;
+  remoteJid: string;
+  messageId: string;
+}): Promise<boolean> {
+  const stored = await lookupStored(
+    closedKey(params.accountId, params.remoteJid, params.messageId),
+  );
+  return stored?.closed === true;
+}
+
+/**
+ * The cancelled cards that a new card replaces, forgotten once read: those in its chat for any of its recipients.
+ * The new card's proposal also settles its session's cancelled proposals to those recipients.
+ */
+export async function consumeWhatsAppApprovalCardsReplacedBy(
+  card: WhatsAppApprovalCard,
+): Promise<WhatsAppApprovalCard[]> {
+  let replaced: WhatsAppApprovalCard[] = [];
+  await update(cancelledKey(card.accountId, card.remoteJid), (current) => {
+    const cancelled = current?.cancelled ?? [];
+    replaced = cancelled.filter((known) => sharesRecipient(known.recipients, card.recipients));
+    return replaced.length > 0
+      ? { cancelled: cancelled.filter((known) => !replaced.includes(known)) }
+      : undefined;
+  });
+  if (card.sourceSessionKey) {
+    await update(proposalsKey(card.sourceSessionKey), (current) =>
+      current?.proposals
+        ? {
+            proposals: current.proposals.filter(
+              (proposal) => !sharesRecipient(proposal.recipients, card.recipients),
+            ),
+          }
+        : undefined,
+    );
+  }
+  return replaced;
+}
+
+/**
+ * The session's proposals cancelled before a decision and not proposed again, earliest first. A
+ * proposal older than the overdue-answer threshold is left to the approver.
+ */
+export async function readWhatsAppCancelledProposals(
+  sessionKey: string,
+  nowMs: number,
+): Promise<WhatsAppCancelledProposal[]> {
+  const stored = await lookupStored(proposalsKey(sessionKey));
+  return (stored?.proposals ?? []).filter(
+    (proposal) => nowMs - proposal.cancelledAtMs <= WHATSAPP_OVERDUE_ANSWER_THRESHOLD_MS,
+  );
+}
+
+// Approvals the approver's reaction is resolving: a deny among them is the approver's rejection,
+// any other deny a cancellation. Process-global because the plugin loads in several module
+// instances.
+const approvalsDecidedByReaction = resolveGlobalMap<string, true>(
+  Symbol.for("openclaw.whatsapp-for-business.approvalsDecidedByReaction"),
+);
+
+/** Records that the approver's reaction is resolving the approval. */
+export function recordWhatsAppApprovalReactionDecision(approvalId: string): void {
+  approvalsDecidedByReaction.set(approvalId, true);
+}
+
+/** Forgets a reaction that resolved nothing. */
+export function forgetWhatsAppApprovalReactionDecision(approvalId: string): void {
+  approvalsDecidedByReaction.delete(approvalId);
+}
+
+/** Whether the approver's reaction resolved the approval; forgets it. */
+export function consumeWhatsAppApprovalReactionDecision(approvalId: string): boolean {
+  return approvalsDecidedByReaction.delete(approvalId);
+}
