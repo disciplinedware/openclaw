@@ -54,6 +54,7 @@
       "properties": [
         "execApprovals",
         "approvalLanguage",
+        "approvalUnansweredMessageLimit",
         "unhandledApprovalPolicy"
       ]
     }
@@ -85,6 +86,12 @@
         ],
         "default": "en",
         "description": "Language for native WhatsApp Guardian approval instructions and outcomes."
+      },
+      "approvalUnansweredMessageLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 10,
+        "description": "How many of the recipient's latest unanswered messages a message approval shows above the card; a line counts the earlier ones."
       },
       "unhandledApprovalPolicy": {
         "type": "string",

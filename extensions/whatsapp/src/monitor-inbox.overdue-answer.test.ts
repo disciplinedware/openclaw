@@ -306,7 +306,7 @@ describe("overdue answers of direct chats", () => {
     await listener.close();
   });
 
-  it("keeps the person's messages with their text until a delivered send answers them", async () => {
+  it("keeps the person's messages with their text and sender until a delivered send answers them", async () => {
     const { onMessage } = recordTurns();
     const { listener, sock } = await startInboxMonitor(onMessage);
     sock.sendMessage.mockImplementation(async (_jid: string, content: { text?: string }) => ({
@@ -325,6 +325,7 @@ describe("overdue answers of direct chats", () => {
         id: "first",
         sentAtMs: toWireMs(firstAtMs),
         text: "text of first",
+        senderName: "Alex",
       }),
       expect.objectContaining({
         id: "second",
