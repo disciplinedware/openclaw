@@ -18,6 +18,7 @@ import { getActiveWebListener } from "./active-listener.js";
 import {
   consumeWhatsAppApprovalReactionDecision,
   recordWhatsAppApprovalCardClosed,
+  recordWhatsAppApprovalCardDeclined,
   recordWhatsAppApprovalCardDelivered,
   consumeWhatsAppApprovalCardsReplacedBy,
   type WhatsAppApprovalCard,
@@ -261,6 +262,7 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
       }
       const sourceSessionKey =
         "sessionKey" in request.request ? request.request.sessionKey?.trim() : undefined;
+      const sourceRunId = "runId" in request.request ? request.request.runId?.trim() : undefined;
       const entry: WhatsAppApprovalMessage = {
         accountId: preparedTarget.accountId,
         to: preparedTarget.to,
@@ -279,6 +281,7 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
           messageId: entry.messageId,
           recipients,
           ...(sourceSessionKey ? { sourceSessionKey } : {}),
+          ...(sourceRunId ? { sourceRunId } : {}),
           ...("description" in request.request && request.request.description
             ? { description: request.request.description }
             : {}),
@@ -300,6 +303,9 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
       }
       if (entry.card && payload.outcome) {
         await recordWhatsAppApprovalCardClosed(entry.card, closingOf(payload.outcome), Date.now());
+      }
+      if (entry.card && (payload.outcome === "expired" || payload.outcome === "deny")) {
+        recordWhatsAppApprovalCardDeclined(entry.card);
       }
       if (entry.card && payload.outcome === "expired") {
         await remindOfWaitingRecipients(cfg, entry, entry.card);

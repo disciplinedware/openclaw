@@ -4,6 +4,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { recordWhatsAppApprovalCardDeclined } from "./approval-cards.js";
 import { createWhatsAppRecipientResolver } from "./inbound/recipient-resolver.js";
 import { createTestWhatsAppRecipientResolver } from "./inbound/recipient-resolver.test-helper.js";
 import { registerWhatsAppOverdueAnswerSendGuard } from "./overdue-answer-send-guard.js";
@@ -59,6 +60,7 @@ const directSession = (cfg: OpenClawConfig, peer: string) =>
 type ToolCall = { toolName: string; params: Record<string, unknown> };
 type ToolContext = {
   sessionKey?: string;
+  runId?: string;
   channelId?: string;
   requester?: { channel?: string; accountId?: string; senderId?: string };
 };
@@ -381,5 +383,62 @@ describe("the turn's sends, for the end of the turn", () => {
     await check(send({ target: "owner" }), { sessionKey: directSession(CFG, CONTACT) });
 
     expect(consumeWhatsAppTurnSend(directSession(CFG, CONTACT))).toBe(false);
+  });
+});
+
+describe("declined proposal send guard", () => {
+  const declineIn = (runId: string, recipient: string) =>
+    recordWhatsAppApprovalCardDeclined({
+      accountId: "default",
+      remoteJid: "15550000200@s.whatsapp.net",
+      messageId: `card-${runId}`,
+      recipients: [recipient],
+      sourceRunId: runId,
+    });
+  const endRun = (runId: string) =>
+    (hooks.get("agent_end") as unknown as (event: unknown, ctx: { runId?: string }) => void)(
+      {},
+      { runId },
+    );
+
+  afterEach(() => {
+    endRun("run-1");
+  });
+
+  it("refuses the run that got no approval when it proposes to the same person again", async () => {
+    declineIn("run-1", CONTACT);
+
+    const result = await check(send({ target: CONTACT }), { ...runOf(CONTACT), runId: "run-1" });
+
+    expect(result?.block).toBe(true);
+    expect(result?.blockReason).toContain("end the turn");
+  });
+
+  it("lets another run, and another recipient of the same run, through", async () => {
+    declineIn("run-1", CONTACT);
+
+    await expect(
+      check(send({ target: CONTACT }), { ...runOf(CONTACT), runId: "run-2" }),
+    ).resolves.toBeUndefined();
+    await expect(
+      check(send({ target: OTHER_CONTACT }), { ...runOf(OWNER), runId: "run-1" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("knows the person under the number form a system of record stores", async () => {
+    declineIn("run-1", MX_REGISTERED);
+
+    const result = await check(send({ target: MX_STORED }), { ...runOf(OWNER), runId: "run-1" });
+
+    expect(result?.block).toBe(true);
+  });
+
+  it("forgets a run once it ends", async () => {
+    declineIn("run-1", CONTACT);
+    endRun("run-1");
+
+    await expect(
+      check(send({ target: CONTACT }), { ...runOf(CONTACT), runId: "run-1" }),
+    ).resolves.toBeUndefined();
   });
 });
