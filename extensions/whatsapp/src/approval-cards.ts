@@ -13,6 +13,8 @@ export type WhatsAppApprovalCard = {
   recipients: string[];
   /** The session whose run proposed the message. */
   sourceSessionKey?: string;
+  /** The run that proposed the message. */
+  sourceRunId?: string;
   /** The card's proposal as the approver read it. */
   description?: string;
 };
@@ -220,4 +222,41 @@ export function forgetWhatsAppApprovalReactionDecision(approvalId: string): void
 /** Whether the approver's reaction resolved the approval; forgets it. */
 export function consumeWhatsAppApprovalReactionDecision(approvalId: string): boolean {
   return approvalsDecidedByReaction.delete(approvalId);
+}
+
+/** A person a run's proposal was not approved for: the card expired or the approver rejected it. */
+type DeclinedRecipient = { accountId: string; personE164: string };
+
+// Process-global because the plugin loads in several module instances; a run's entry lives until
+// the run ends.
+const recipientsDeclinedInRun = resolveGlobalMap<string, DeclinedRecipient[]>(
+  Symbol.for("openclaw.whatsapp-for-business.recipientsDeclinedInRun"),
+);
+
+/** Records that the card's run got no approval to write to the card's recipients. */
+export function recordWhatsAppApprovalCardDeclined(card: WhatsAppApprovalCard): void {
+  if (!card.sourceRunId) {
+    return;
+  }
+  const declined = recipientsDeclinedInRun.get(card.sourceRunId) ?? [];
+  for (const personE164 of card.recipients) {
+    if (
+      !declined.some(
+        (known) => known.accountId === card.accountId && known.personE164 === personE164,
+      )
+    ) {
+      declined.push({ accountId: card.accountId, personE164 });
+    }
+  }
+  recipientsDeclinedInRun.set(card.sourceRunId, declined);
+}
+
+/** The people the run got no approval to write to. */
+export function listWhatsAppRecipientsDeclinedInRun(runId: string): readonly DeclinedRecipient[] {
+  return recipientsDeclinedInRun.get(runId) ?? [];
+}
+
+/** Forgets an ended run's declined recipients. */
+export function forgetWhatsAppRecipientsDeclinedInRun(runId: string): void {
+  recipientsDeclinedInRun.delete(runId);
 }

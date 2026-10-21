@@ -7,6 +7,10 @@ import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runti
 import { listWhatsAppAccountIds } from "./account-ids.js";
 import { getActiveWebListener } from "./active-listener.js";
 import { WHATSAPP_CALL_TOOL_NAME } from "./agent-tools-call.js";
+import {
+  forgetWhatsAppRecipientsDeclinedInRun,
+  listWhatsAppRecipientsDeclinedInRun,
+} from "./approval-cards.js";
 import { normalizeWhatsAppDirectId } from "./command-owner.js";
 import { isWhatsAppOwnerTarget, normalizeWhatsAppTarget } from "./normalize-target.js";
 import {
@@ -31,6 +35,7 @@ type WhatsAppToolCall = {
 /** The parts of OpenClaw's tool hook context that this module reads. */
 type WhatsAppToolCallContext = {
   sessionKey?: string;
+  runId?: string;
   /** The run's current conversation id. */
   channelId?: string;
   requester?: { channel?: string; accountId?: string; senderId?: string };
@@ -258,7 +263,51 @@ async function resolveWhatsAppOverdueAnswerToolBlock(params: {
   return undefined;
 }
 
+/**
+ * Refuses a tool call that would reach a person the run already proposed a message to without
+ * approval: the card expired or the approver rejected it. Proposing it again in the same run asks
+ * the approver again for what they let pass or refused; a new message starts the next run.
+ */
+async function resolveWhatsAppDeclinedProposalToolBlock(params: {
+  call: WhatsAppToolCall;
+  context: WhatsAppToolCallContext;
+  cfg: OpenClawConfig;
+}): Promise<WhatsAppToolBlock | undefined> {
+  const runId = normalizeOptionalString(params.context.runId);
+  const declined = runId ? listWhatsAppRecipientsDeclinedInRun(runId) : [];
+  if (declined.length === 0) {
+    return undefined;
+  }
+  const reach = readWhatsAppToolCallReach({
+    call: params.call,
+    context: params.context,
+    ownerE164: findWhatsAppOwnerE164(params.cfg),
+  });
+  for (const { accountId, personE164 } of declined) {
+    for (const target of reach.people) {
+      if (
+        target === personE164 ||
+        (await resolveRegisteredPerson(accountId, target)) === personE164
+      ) {
+        return {
+          block: true,
+          blockReason:
+            `WhatsApp ${personE164}: the approver did not approve this turn's proposal to this ` +
+            `person (it expired or was rejected), so nothing was sent. Do not propose it again ` +
+            `in this turn; end the turn. A new message starts the next proposal.`,
+        };
+      }
+    }
+  }
+  return undefined;
+}
+
 export function registerWhatsAppOverdueAnswerSendGuard(api: OpenClawPluginApi): void {
+  api.on("agent_end", (_event, ctx) => {
+    if (ctx.runId) {
+      forgetWhatsAppRecipientsDeclinedInRun(ctx.runId);
+    }
+  });
   api.on("before_tool_call", async (event, ctx) => {
     if (!isWhatsAppReachingCall(event, ctx)) {
       return undefined;
@@ -267,11 +316,15 @@ export function registerWhatsAppOverdueAnswerSendGuard(api: OpenClawPluginApi): 
     if (ctx.sessionKey && ctx.requester?.senderId) {
       recordWhatsAppTurnSend(ctx.sessionKey);
     }
-    return await resolveWhatsAppOverdueAnswerToolBlock({
-      call: event,
-      context: ctx,
-      cfg: getRuntimeConfig(),
-      nowMs: Date.now(),
-    });
+    const cfg = getRuntimeConfig();
+    return (
+      (await resolveWhatsAppDeclinedProposalToolBlock({ call: event, context: ctx, cfg })) ??
+      (await resolveWhatsAppOverdueAnswerToolBlock({
+        call: event,
+        context: ctx,
+        cfg,
+        nowMs: Date.now(),
+      }))
+    );
   });
 }
