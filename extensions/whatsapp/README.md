@@ -23,8 +23,8 @@ The native handler unbinds reactions before terminal transport. Cleanup failure 
 For message approvals with native `scope.kind: "message-send"` and `scope.target: "whatsapp"`, a quoted receipt reports the settled send result.
 The receipt matches the native run, session and tool-call identities. Authorization alone never establishes delivery.
 The approval edit and receipt can arrive in either order. A successful receipt explicitly states both approval and sending.
-Failed receipt delivery stays in the retained outbox for startup recovery. Recovery never retries the original operation.
-An interrupted process without a settled result produces an unknown outcome, not a successful-send claim.
+Failed receipt delivery stays in the retained outbox. Recovery runs when the account's WhatsApp connection is live, on connect and every 30 seconds with OpenClaw's own delivery drain, and settles the cards an earlier process left: a settled receipt is sent again, an approved card whose send never settled gets the receipt that delivery is unknown, and a card nobody decided reads `🔄 Cancelled before a decision.`, because its run ended with that process and nothing was sent. Recovery never retries the original operation.
+An approved send that an interrupted process never settled produces an unknown outcome, not a successful-send claim.
 Receipt recovery is at least once: a crash after transport acceptance can repeat a status notice.
 Cards and status notices enter the owner's native transcript with source and recipient conversation references. These references remain history-only.
 

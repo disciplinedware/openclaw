@@ -17,6 +17,7 @@ import {
 } from "openclaw/plugin-sdk/runtime-env";
 import { enqueueSystemEvent } from "openclaw/plugin-sdk/system-event-runtime";
 import { resolveWhatsAppAccount, resolveWhatsAppMediaMaxBytes } from "../accounts.js";
+import { drainWhatsAppApprovalDeliveries } from "../approval-delivery.js";
 import { WHATSAPP_AUTH_UNSTABLE_CODE, WhatsAppAuthUnstableError } from "../auth-store.js";
 import {
   WhatsAppConnectionController,
@@ -467,6 +468,14 @@ export async function monitorWebChannel(
             `${mode} drain failed`,
           );
         });
+        void drainWhatsAppApprovalDeliveries(account.accountId, whatsappLog).catch(
+          (err: unknown) => {
+            reconnectLogger.warn(
+              { connectionId: connection.connectionId, error: String(err) },
+              `${mode} approval delivery drain failed`,
+            );
+          },
+        );
       };
       drainDeliveries("reconnect");
       const periodicDrainInterval = setInterval(() => drainDeliveries("periodic"), 30_000);

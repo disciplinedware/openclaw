@@ -25,6 +25,7 @@ import {
 } from "./approval-cards.js";
 import {
   forgetWhatsAppApprovalDelivery,
+  recordWhatsAppApprovalDeliveryApproved,
   rememberWhatsAppApprovalDelivery,
 } from "./approval-delivery.js";
 import { recordWhatsAppApprovalHistory, type WhatsAppApprovalMessage } from "./approval-history.js";
@@ -298,7 +299,9 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
       return entry;
     },
     updateEntry: async ({ cfg, entry, payload }) => {
-      if (!payload.deliveryPending) {
+      if (payload.deliveryPending) {
+        await recordWhatsAppApprovalDeliveryApproved(entry);
+      } else {
         await forgetWhatsAppApprovalDelivery(entry);
       }
       if (entry.card && payload.outcome) {
