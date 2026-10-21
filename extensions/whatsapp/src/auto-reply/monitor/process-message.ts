@@ -18,7 +18,6 @@ import {
 import { formatAudioTranscriptForAgent } from "openclaw/plugin-sdk/media-understanding-runtime";
 import { getGlobalHookRunner } from "openclaw/plugin-sdk/plugin-runtime";
 import { resolveBatchedReplyThreadingPolicy } from "openclaw/plugin-sdk/reply-reference";
-import { readWhatsAppCancelledProposals } from "../../approval-cards.js";
 import { getPrimaryIdentityId, getSelfIdentity, getSenderIdentity } from "../../identity.js";
 import {
   resolveWhatsAppCommandAuthorized,
@@ -47,7 +46,6 @@ import { whatsappInboundLog } from "../loggers.js";
 import { elide } from "../util.js";
 import { maybeSendAckReaction } from "./ack-reaction.js";
 import { hasWhatsAppAudioBody, transcribeWhatsAppAudioMessage } from "./audio-preflight.js";
-import { withWhatsAppCancelledProposalsContext } from "./cancelled-proposals-context.js";
 import {
   resolveVisibleWhatsAppGroupHistory,
   resolveVisibleWhatsAppReplyContext,
@@ -437,12 +435,9 @@ export async function processMessage(params: {
     groupHistoryLimit: params.groupHistoryLimit,
     groupMemberRoster: params.groupMemberNames.get(params.groupHistoryKey),
     groupSystemPrompt: conversationSystemPrompt,
-    msg: withWhatsAppCancelledProposalsContext(
-      withWhatsAppUnansweredMessagesContext(
-        withWhatsAppOverdueAnswerContext(params.msg),
-        answerPerson ? await readWhatsAppUnansweredMessages(answerPerson) : [],
-      ),
-      await readWhatsAppCancelledProposals(params.route.sessionKey, Date.now()),
+    msg: withWhatsAppUnansweredMessagesContext(
+      withWhatsAppOverdueAnswerContext(params.msg),
+      answerPerson ? await readWhatsAppUnansweredMessages(answerPerson) : [],
     ),
     rawBody: commandBody,
     route: params.route,

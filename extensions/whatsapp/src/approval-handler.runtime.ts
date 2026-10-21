@@ -18,6 +18,7 @@ import { getActiveWebListener } from "./active-listener.js";
 import {
   consumeWhatsAppApprovalReactionDecision,
   recordWhatsAppApprovalCardClosed,
+  recordWhatsAppApprovalCardDelivered,
   consumeWhatsAppApprovalCardsReplacedBy,
   type WhatsAppApprovalCard,
 } from "./approval-cards.js";
@@ -289,6 +290,7 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
       }
       if (entry.card) {
         await markReplacedCards(cfg, entry.card);
+        await recordWhatsAppApprovalCardDelivered(entry.card);
       }
       return entry;
     },
