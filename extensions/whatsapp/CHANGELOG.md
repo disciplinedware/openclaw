@@ -14,6 +14,7 @@ Versions follow the upstream OpenClaw version they build on, with OpenClaw's cor
 
 ### Changed
 
+- Delivery receipt recovery runs once the account's WhatsApp connection is live, not at gateway start, and sends the "delivery could not be confirmed" receipt only for a card the approver approved. A card nobody decided before a restart reads cancelled. Receipts sent at start failed before the connection, piled up across restarts and reached the host as a burst of warnings about cards nobody had approved.
 - The `cancelled_proposals` and `unanswered_messages` contexts state facts instead of orders. A turn sent a cancelled proposal again with a point the host had answered after it, because the context said to propose it again; it now says that nothing was sent and that a later delivered message may have answered part of it.
 - A run whose card expired or was rejected cannot propose to the same recipients again: the send guard refuses the call with the reason to end the turn. The agent proposed the same text again after each expiry, a new card every five minutes, because the turn's context repeats the rule to answer every unanswered message after each tool result.
 - The README names the grant an installed plugin needs for its conversation hooks (`hooks.allowConversationAccess`): without it OpenClaw blocks `before_prompt_build`, and the turn received no cancelled proposals.
