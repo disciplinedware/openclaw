@@ -3,6 +3,7 @@ import {
   isWhatsAppApprovalCardClosed,
   readWhatsAppCancelledProposals,
   recordWhatsAppApprovalCardClosed,
+  recordWhatsAppApprovalCardDelivered,
   consumeWhatsAppApprovalCardsReplacedBy,
   type WhatsAppApprovalCard,
 } from "./approval-cards.js";
@@ -65,9 +66,11 @@ describe("WhatsApp approval cards", () => {
 
   it("keeps a cancelled proposal for its session until a new card to that recipient", async () => {
     const host = "agent:host:whatsapp:default:direct:+79262070342";
-    await recordWhatsAppApprovalCardClosed(card({ sourceSessionKey: host }), "cancelled", NOW_MS);
+    const cancelled = card({ sourceSessionKey: host });
+    await recordWhatsAppApprovalCardDelivered(cancelled);
+    await recordWhatsAppApprovalCardClosed(cancelled, "cancelled", NOW_MS);
 
-    await expect(readWhatsAppCancelledProposals(host, NOW_MS)).resolves.toEqual([
+    await expect(readWhatsAppCancelledProposals(host, NOW_MS + MINUTE_MS)).resolves.toEqual([
       { recipients: ["+5219902410673"], description: "💬 Код двери 4821.", cancelledAtMs: NOW_MS },
     ]);
     await expect(
@@ -78,9 +81,42 @@ describe("WhatsApp approval cards", () => {
     await expect(readWhatsAppCancelledProposals(host, NOW_MS)).resolves.toEqual([]);
   });
 
+  it("gives the next turn a proposal whose card is still open: the ended run is cancelling it", async () => {
+    const guest = "agent:assistant:whatsapp:default:direct:+5219902410673";
+    await recordWhatsAppApprovalCardDelivered(card({ sourceSessionKey: guest }));
+
+    await expect(readWhatsAppCancelledProposals(guest, NOW_MS)).resolves.toEqual([
+      { recipients: ["+5219902410673"], description: "💬 Код двери 4821.", cancelledAtMs: NOW_MS },
+    ]);
+  });
+
+  it("forgets a proposal that its approver decided or that expired", async () => {
+    const guest = "agent:assistant:whatsapp:default:direct:+5219902410673";
+    const decided = card({ sourceSessionKey: guest });
+    const expired = card({ sourceSessionKey: guest });
+    await recordWhatsAppApprovalCardDelivered(decided);
+    await recordWhatsAppApprovalCardDelivered(expired);
+    await recordWhatsAppApprovalCardClosed(decided, "decided", NOW_MS);
+    await recordWhatsAppApprovalCardClosed(expired, "expired", NOW_MS);
+
+    await expect(readWhatsAppCancelledProposals(guest, NOW_MS)).resolves.toEqual([]);
+  });
+
+  it("does not bring back a proposal that a newer card proposed again before its cancellation was recorded", async () => {
+    const guest = "agent:assistant:whatsapp:default:direct:+5219902410673";
+    const cancelled = card({ sourceSessionKey: guest });
+    await recordWhatsAppApprovalCardDelivered(cancelled);
+    await consumeWhatsAppApprovalCardsReplacedBy(card({ sourceSessionKey: guest }));
+    await recordWhatsAppApprovalCardClosed(cancelled, "cancelled", NOW_MS);
+
+    await expect(readWhatsAppCancelledProposals(guest, NOW_MS)).resolves.toEqual([]);
+  });
+
   it("leaves a cancelled proposal to the approver once the answer is overdue", async () => {
     const host = "agent:host:whatsapp:default:direct:+79262070342";
-    await recordWhatsAppApprovalCardClosed(card({ sourceSessionKey: host }), "cancelled", NOW_MS);
+    const cancelled = card({ sourceSessionKey: host });
+    await recordWhatsAppApprovalCardDelivered(cancelled);
+    await recordWhatsAppApprovalCardClosed(cancelled, "cancelled", NOW_MS);
 
     await expect(readWhatsAppCancelledProposals(host, NOW_MS + 16 * MINUTE_MS)).resolves.toEqual(
       [],

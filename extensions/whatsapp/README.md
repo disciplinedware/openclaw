@@ -78,7 +78,7 @@ A message approval card (`scope.kind: "message-send"`, `scope.target: "whatsapp"
 | The run that asked stopped first (queue mode `interrupt`) | `🔄 Cancelled before a decision.`, then `🔄 Updated below.` once a newer card for one of its recipients reaches the same chat |
 | Nobody answered in time                                   | `⏱️ Expired without an answer.`, and one reminder below it names who waits and since when, while their messages still wait    |
 
-A cancelled proposal reaches the next turns of the session that proposed it as channel structured context (`cancelled_proposals`), with the rule to propose again what the conversation still asks for, until a newer card to the same recipient or the overdue-answer threshold. A decision reaction on a closed card resolves nothing; the plugin replies that the card is no longer active. Several cards may wait for one recipient: only a cancellation leads to a replacement.
+A cancelled proposal reaches the next turns of the session that proposed it as prompt context (`cancelled_proposals`, from the `before_prompt_build` hook), with the rule to propose again what the conversation still asks for, until a newer card to the same recipient or the overdue-answer threshold. A decision reaction on a closed card resolves nothing; the plugin replies that the card is no longer active. Several cards may wait for one recipient: only a cancellation leads to a replacement. The context is read when the turn's prompt is built, because the message that starts the turn is what cancels the previous turn's proposal; a card of the session still open at that moment belongs to a run that has ended, so the turn receives it as cancelled.
 
 ### `execApprovals`
 

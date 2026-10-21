@@ -14,6 +14,8 @@ Versions follow the upstream OpenClaw version they build on, with OpenClaw's cor
 
 ### Changed
 
+- A session's turn receives the proposals that the message starting it cancelled. The plugin read them when the message arrived, before the message cancelled the running turn, so the turn after a cancelled card saw nothing and the guest never got the cancelled answer.
+
 - A rejection reads `❌ Rejected.` instead of `❌ Not run.`, and an expiry `⏱️ Expired without an answer.` without the request for a new proposal, which made the agent propose again every five minutes.
 
 ### Fixed

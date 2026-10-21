@@ -10,6 +10,7 @@ function registerWhatsAppAgentSurface(api: OpenClawPluginApi): void {
     "registerWhatsAppAgentTools",
     "registerWhatsAppAgentSendHistory",
     "registerWhatsAppApprovalDelivery",
+    "registerWhatsAppCancelledProposalsContext",
     "registerWhatsAppOverdueAnswerSendGuard",
     "registerWhatsAppOwnMessageHistory",
   ]) {

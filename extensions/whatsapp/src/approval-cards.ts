@@ -24,13 +24,22 @@ export type WhatsAppCancelledProposal = {
   cancelledAtMs: number;
 };
 
+/** A session's proposal from the delivery of its card until a decision or expiry ends it. */
+type StoredProposal = {
+  cardMessageId: string;
+  recipients: string[];
+  description?: string;
+  /** Absent while the card is open. */
+  cancelledAtMs?: number;
+};
+
 type StoredCards = {
   /** Cards in one approver chat cancelled before a decision, until a newer card replaces them. */
   cancelled?: WhatsAppApprovalCard[];
   /** Set on a card whose approval ended, so a later reaction on it gets an answer. */
   closed?: true;
-  /** One session's cancelled proposals, for its next turn. */
-  proposals?: WhatsAppCancelledProposal[];
+  /** One session's open and cancelled proposals, for its next turn. */
+  proposals?: StoredProposal[];
 };
 
 const CARDS_MAX_ENTRIES = 5_000;
@@ -76,6 +85,21 @@ async function update(
 const sharesRecipient = (recipients: readonly string[], other: readonly string[]) =>
   recipients.some((recipient) => other.includes(recipient));
 
+/** Records a delivered card's proposal for the session that proposed it, until the card closes. */
+export async function recordWhatsAppApprovalCardDelivered(
+  card: WhatsAppApprovalCard,
+): Promise<void> {
+  if (!card.sourceSessionKey) {
+    return;
+  }
+  await update(proposalsKey(card.sourceSessionKey), (current) => ({
+    proposals: [
+      ...(current?.proposals ?? []).filter((known) => known.cardMessageId !== card.messageId),
+      { cardMessageId: card.messageId, recipients: card.recipients, description: card.description },
+    ],
+  }));
+}
+
 /**
  * Records the end of a card's approval. A card cancelled before a decision waits in its chat for
  * the next card to the same recipient, which replaces it, and its proposal waits for the next turn
@@ -87,6 +111,22 @@ export async function recordWhatsAppApprovalCardClosed(
   nowMs: number,
 ): Promise<void> {
   await update(closedKey(card.accountId, card.remoteJid, card.messageId), () => ({ closed: true }));
+  if (card.sourceSessionKey) {
+    // A proposal already gone was proposed again by a newer card; its cancellation adds nothing.
+    await update(proposalsKey(card.sourceSessionKey), (current) =>
+      current?.proposals
+        ? {
+            proposals: current.proposals.flatMap((known) =>
+              known.cardMessageId !== card.messageId
+                ? [known]
+                : outcome === "cancelled"
+                  ? [{ ...known, cancelledAtMs: nowMs }]
+                  : [],
+            ),
+          }
+        : undefined,
+    );
+  }
   if (outcome !== "cancelled") {
     return;
   }
@@ -96,14 +136,6 @@ export async function recordWhatsAppApprovalCardClosed(
       card,
     ],
   }));
-  if (card.sourceSessionKey) {
-    await update(proposalsKey(card.sourceSessionKey), (current) => ({
-      proposals: [
-        ...(current?.proposals ?? []),
-        { recipients: card.recipients, description: card.description, cancelledAtMs: nowMs },
-      ],
-    }));
-  }
 }
 
 /** Whether the card's approval already ended. */
@@ -148,17 +180,24 @@ export async function consumeWhatsAppApprovalCardsReplacedBy(
 }
 
 /**
- * The session's proposals cancelled before a decision and not proposed again, earliest first. A
- * proposal older than the overdue-answer threshold is left to the approver.
+ * At the start of a session's turn, the proposals of its earlier runs that no approver decided and
+ * that were not proposed again, earliest first. A card still open belongs to a run that already
+ * ended, since a session runs one turn at a time: the run's end is cancelling its approval, and
+ * the cancellation may not be recorded yet. A proposal older than the overdue-answer threshold is
+ * left to the approver.
  */
 export async function readWhatsAppCancelledProposals(
   sessionKey: string,
   nowMs: number,
 ): Promise<WhatsAppCancelledProposal[]> {
   const stored = await lookupStored(proposalsKey(sessionKey));
-  return (stored?.proposals ?? []).filter(
-    (proposal) => nowMs - proposal.cancelledAtMs <= WHATSAPP_OVERDUE_ANSWER_THRESHOLD_MS,
-  );
+  return (stored?.proposals ?? [])
+    .map(({ recipients, description, cancelledAtMs }) => ({
+      recipients,
+      ...(description !== undefined ? { description } : {}),
+      cancelledAtMs: cancelledAtMs ?? nowMs,
+    }))
+    .filter((proposal) => nowMs - proposal.cancelledAtMs <= WHATSAPP_OVERDUE_ANSWER_THRESHOLD_MS);
 }
 
 // Approvals the approver's reaction is resolving: a deny among them is the approver's rejection,

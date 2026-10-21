@@ -708,11 +708,17 @@ describe("whatsappApprovalNativeRuntime message cards", () => {
           },
         },
       } as never);
+    const { readWhatsAppCancelledProposals } = await import("./approval-cards.js");
+    const guestSession = "agent:assistant:whatsapp:default:direct:+5219902410673";
     try {
       const first = await deliver("plugin:first");
       expect(sendMessage.mock.calls[0]?.[1]).toBe(
         "📥 Lika · +5219902410673\n16:15 Когда заселение?\n\nApprove message?",
       );
+      // The guest's next message cancels the run; its turn starts before the cancellation lands.
+      await expect(readWhatsAppCancelledProposals(guestSession, Date.now())).resolves.toEqual([
+        expect.objectContaining({ recipients: [guest], description: "💬 Заселение с 15:00." }),
+      ]);
 
       await transport.updateEntry!({
         cfg: cfg as never,
@@ -724,6 +730,9 @@ describe("whatsappApprovalNativeRuntime message cards", () => {
         cfg,
         accountId: "default",
       });
+      await expect(readWhatsAppCancelledProposals(guestSession, Date.now())).resolves.toEqual([
+        expect.objectContaining({ description: "💬 Заселение с 15:00." }),
+      ]);
 
       const sentBefore = sendMessage.mock.calls.length;
       await transport.updateEntry!({
