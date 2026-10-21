@@ -25,7 +25,7 @@ export function buildWhatsAppCancelledProposalsContext(
         cancelled_at: new Date(proposal.cancelledAtMs).toISOString(),
         card: proposal.description ?? null,
       })),
-      rule: "These proposals ended before the approver decided, so none was sent. Propose again each one that the conversation still asks for, together with the answer to the new message.",
+      rule: "None of these proposals was sent: each ended before the approver decided. A message delivered to the same person after cancelled_at may have answered part of one. Send again only what is still unanswered, together with the answer to the new message.",
     },
   };
   return [

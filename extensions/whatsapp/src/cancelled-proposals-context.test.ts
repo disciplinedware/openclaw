@@ -88,9 +88,7 @@ describe("WhatsApp proposals cancelled before a decision", () => {
           },
           { recipients: ["+15550000300"], cancelled_at: "2026-10-20T21:18:00.000Z", card: null },
         ],
-        rule: expect.stringContaining(
-          "Propose again each one that the conversation still asks for",
-        ),
+        rule: expect.stringContaining("Send again only what is still unanswered"),
       },
     });
   });

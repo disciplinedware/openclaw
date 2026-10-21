@@ -34,7 +34,7 @@ describe("WhatsApp messages without an answer", () => {
             { sent_at: null, text: null },
             { sent_at: "2026-10-20T17:22:00.000Z", text: "And towels?" },
           ],
-          rule: expect.stringContaining("Answer all of them in one reply."),
+          rule: expect.stringContaining("The next reply to the person answers all of them"),
         },
       },
     ]);

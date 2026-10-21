@@ -22,7 +22,7 @@ export function withWhatsAppUnansweredMessagesContext(
         sent_at: message.sentAtMs !== undefined ? new Date(message.sentAtMs).toISOString() : null,
         text: message.text ?? null,
       })),
-      rule: "No message from this WhatsApp number reached the person after these messages, so nothing proposed for them was delivered. Answer all of them in one reply.",
+      rule: "No message from this WhatsApp number reached the person after these messages, so none of them has an answer yet. The next reply to the person answers all of them; a proposal the approver rejected or let expire in this turn is not proposed again.",
     },
   };
   return {
