@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { registerWhatsAppApprovalDelivery } from "./approval-delivery.js";
+import {
+  drainWhatsAppApprovalDeliveries,
+  registerWhatsAppApprovalDelivery,
+} from "./approval-delivery.js";
 import { whatsappApprovalNativeRuntime } from "./approval-handler.runtime.js";
 import { createMemoryPluginStateRuntime } from "./plugin-state.test-helper.js";
 
@@ -205,12 +208,14 @@ describe("WhatsApp approved delivery receipts", () => {
     for (const { key, value } of await store.entries()) {
       await store.register(key, { ...value, processIdentity: "previous-process" });
     }
-    await f.callbacks.get("gateway_start")!({}, {});
+    await drainWhatsAppApprovalDeliveries("other-account", f.logger);
+    expect(f.sent).toHaveBeenCalledTimes(2);
+    await drainWhatsAppApprovalDeliveries("default", f.logger);
     expect(f.sent).toHaveBeenCalledTimes(3);
     expect(f.sent.mock.calls[2]?.[0]).toBe("+15550000200");
     expect(f.sent.mock.calls[2]?.[1]).toBe("✅ Approved. 📤 Sent.");
     expect(await store.entries()).toEqual([]);
-    await f.callbacks.get("gateway_start")!({}, {});
+    await drainWhatsAppApprovalDeliveries("default", f.logger);
     expect(f.sent).toHaveBeenCalledTimes(3);
   });
 
@@ -220,8 +225,7 @@ describe("WhatsApp approved delivery receipts", () => {
     expect(f.sent).toHaveBeenCalledTimes(2);
   });
 
-  it("reports an interrupted process as unknown without claiming approval or repeating contact actions", async () => {
-    const f = await fixture();
+  const fromPreviousProcess = async (f: Awaited<ReturnType<typeof fixture>>) => {
     const store = f.state.runtime.state.openKeyedStore<{ processIdentity: string }>({
       namespace: "whatsapp.approval-delivery",
       retention: "retained",
@@ -229,10 +233,38 @@ describe("WhatsApp approved delivery receipts", () => {
     for (const { key, value } of await store.entries()) {
       await store.register(key, { ...value, processIdentity: "previous-process" });
     }
-    await f.callbacks.get("gateway_start")!({}, {});
+    return store;
+  };
+
+  it("reports an approved card of an interrupted process as unknown without repeating contact actions", async () => {
+    const f = await fixture();
+    await f.resolve("allow-once");
+    const store = await fromPreviousProcess(f);
+    await drainWhatsAppApprovalDeliveries("default", f.logger);
     expect(f.sent).toHaveBeenCalledTimes(2);
     expect(f.sent.mock.calls[1]?.[1]).toContain("Delivery could not be confirmed");
     expect(f.sent.mock.calls[1]?.[1]).not.toContain("Approved");
     expect(await store.entries()).toEqual([]);
+  });
+
+  it("marks a card of an interrupted process that nobody decided as cancelled, sending nothing", async () => {
+    const f = await fixture();
+    const store = await fromPreviousProcess(f);
+    await drainWhatsAppApprovalDeliveries("default", f.logger);
+    expect(f.sent).toHaveBeenCalledTimes(1);
+    expect(f.edited).toHaveBeenCalledExactlyOnceWith(
+      "15550000200@s.whatsapp.net",
+      "card-1",
+      "🔄 Cancelled before a decision.",
+      expect.anything(),
+    );
+    expect(await store.entries()).toEqual([]);
+  });
+
+  it("leaves the cards of the running process to their own flow", async () => {
+    const f = await fixture();
+    await drainWhatsAppApprovalDeliveries("default", f.logger);
+    expect(f.sent).toHaveBeenCalledTimes(1);
+    expect(f.edited).not.toHaveBeenCalled();
   });
 });

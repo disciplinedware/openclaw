@@ -11,11 +11,12 @@ import {
 import { recordWhatsAppApprovalHistory, type WhatsAppApprovalMessage } from "./approval-history.js";
 import {
   buildWhatsAppApprovalDeliveryText,
+  buildWhatsAppPluginApprovalOutcomeText,
   type WhatsAppApprovalDeliveryOutcome,
 } from "./approval-text.js";
-import { createPerRuntimeStoreOpener } from "./plugin-keyed-store.js";
+import { createKeyedWriteQueue, createPerRuntimeStoreOpener } from "./plugin-keyed-store.js";
 import { getWhatsAppRuntime } from "./runtime.js";
-import { sendMessageWhatsApp } from "./send.js";
+import { editMessageWhatsApp, sendMessageWhatsApp } from "./send.js";
 
 const processIdentity = `${process.pid}:${performance.timeOrigin}`;
 type StoredApprovalDelivery = {
@@ -23,6 +24,8 @@ type StoredApprovalDelivery = {
   entry: WhatsAppApprovalMessage;
   outcome?: WhatsAppApprovalDeliveryOutcome;
   cardKey?: string;
+  /** Set when the approver approved the card. */
+  approved?: true;
 };
 const openStore = createPerRuntimeStoreOpener((runtime) =>
   runtime.state.openKeyedStore<StoredApprovalDelivery>({
@@ -88,61 +91,124 @@ function deliveryOutcome(call: WhatsAppAgentSendToolCall): WhatsAppApprovalDeliv
   return "unknown";
 }
 
-export function registerWhatsAppApprovalDelivery(api: OpenClawPluginApi): void {
-  const deliverReceipt = async (key: string, stored: StoredApprovalDelivery): Promise<void> => {
-    const { entry, outcome, cardKey } = stored;
-    if (!outcome || !cardKey) {
-      throw new Error("WhatsApp delivery receipt lacks its settled outcome or approval card");
-    }
-    const text = buildWhatsAppApprovalDeliveryText(outcome);
-    try {
-      const result = await sendMessageWhatsApp(entry.to, text, {
-        cfg: getRuntimeConfig(),
-        verbose: getWhatsAppRuntime().logging.shouldLogVerbose(),
-        accountId: entry.accountId,
-        quotedMessageKey: {
-          id: entry.messageId,
-          remoteJid: entry.remoteJid,
-          fromMe: true,
-          messageText: entry.text,
-        },
-      });
-      await recordWhatsAppApprovalHistory(entry, text, result.messageId);
-      const store = openStore(getWhatsAppRuntime());
-      await store.delete(cardKey);
-      await store.delete(key);
-    } catch (error) {
-      api.logger.error(
-        `WhatsApp approval delivery receipt retained for recovery, card ${entry.messageId}: ${String(error)}`,
-      );
-    }
-  };
-  const queueReceipt = async (
-    cardKey: string,
-    stored: StoredApprovalDelivery,
-    outcome: WhatsAppApprovalDeliveryOutcome,
-  ) => {
-    const key = JSON.stringify(["receipt", cardKey]);
-    const receipt = { ...stored, processIdentity, outcome, cardKey };
-    if (await openStore(getWhatsAppRuntime()).registerIfAbsent(key, receipt)) {
-      await deliverReceipt(key, receipt);
-    }
-  };
-  api.on("gateway_start", async () => {
+type ReceiptLogger = { error: (message: string) => void };
+
+async function deliverReceipt(
+  key: string,
+  stored: StoredApprovalDelivery,
+  log: ReceiptLogger,
+): Promise<void> {
+  const { entry, outcome, cardKey } = stored;
+  if (!outcome || !cardKey) {
+    throw new Error("WhatsApp delivery receipt lacks its settled outcome or approval card");
+  }
+  const text = buildWhatsAppApprovalDeliveryText(outcome);
+  try {
+    const result = await sendMessageWhatsApp(entry.to, text, {
+      cfg: getRuntimeConfig(),
+      verbose: getWhatsAppRuntime().logging.shouldLogVerbose(),
+      accountId: entry.accountId,
+      quotedMessageKey: {
+        id: entry.messageId,
+        remoteJid: entry.remoteJid,
+        fromMe: true,
+        messageText: entry.text,
+      },
+    });
+    await recordWhatsAppApprovalHistory(entry, text, result.messageId);
     const store = openStore(getWhatsAppRuntime());
-    for (const { key, value } of await store.entries()) {
-      if (!(await store.lookup(key))) {
-        continue;
-      }
-      if (value.processIdentity !== processIdentity) {
-        if (value.outcome) {
-          await deliverReceipt(key, value);
-        } else {
-          await queueReceipt(key, value, "unknown");
-        }
-      }
+    await store.delete(cardKey);
+    await store.delete(key);
+  } catch (error) {
+    log.error(
+      `WhatsApp approval delivery receipt retained for recovery, card ${entry.messageId}: ${String(error)}`,
+    );
+  }
+}
+
+async function queueReceipt(
+  cardKey: string,
+  stored: StoredApprovalDelivery,
+  outcome: WhatsAppApprovalDeliveryOutcome,
+  log: ReceiptLogger,
+): Promise<void> {
+  const key = JSON.stringify(["receipt", cardKey]);
+  const receipt = { ...stored, processIdentity, outcome, cardKey };
+  if (await openStore(getWhatsAppRuntime()).registerIfAbsent(key, receipt)) {
+    await deliverReceipt(key, receipt, log);
+  }
+}
+
+/** Records the approver's approval of a card, so a process that stops before the send settles reports it as unknown. */
+export async function recordWhatsAppApprovalDeliveryApproved(
+  entry: WhatsAppApprovalMessage,
+): Promise<void> {
+  if (!entry.deliveryKey) {
+    return;
+  }
+  const store = openStore(getWhatsAppRuntime());
+  const stored = await store.lookup(entry.deliveryKey);
+  if (stored && !stored.approved) {
+    await store.register(entry.deliveryKey, { ...stored, approved: true });
+  }
+}
+
+const recoveryWrites = createKeyedWriteQueue(
+  "openclaw.whatsapp-for-business.approvalDeliveryRecovery",
+);
+
+/**
+ * Settles the cards an earlier process left on an account, once its WhatsApp connection is live,
+ * because a receipt sent before that fails and waits for the next start. An approved card whose
+ * send never settled gets the receipt that delivery is unknown. A card the approver never decided
+ * sent nothing: the run that asked ended with that process, so the card reads cancelled.
+ */
+export async function drainWhatsAppApprovalDeliveries(
+  accountId: string,
+  log: ReceiptLogger,
+): Promise<void> {
+  const store = openStore(getWhatsAppRuntime());
+  for (const { key, value } of await store.entries()) {
+    if (value.processIdentity === processIdentity || value.entry.accountId !== accountId) {
+      continue;
     }
-  });
+    await recoveryWrites(key, async () => {
+      const stored = await store.lookup(key);
+      if (!stored) {
+        return;
+      }
+      if (stored.outcome) {
+        await deliverReceipt(key, stored, log);
+      } else if (stored.approved) {
+        await queueReceipt(key, stored, "unknown", log);
+      } else {
+        await closeUndecidedCard(key, stored, log);
+      }
+    });
+  }
+}
+
+async function closeUndecidedCard(
+  key: string,
+  stored: StoredApprovalDelivery,
+  log: ReceiptLogger,
+): Promise<void> {
+  const { entry } = stored;
+  const text = buildWhatsAppPluginApprovalOutcomeText("cancelled");
+  try {
+    await editMessageWhatsApp(entry.remoteJid, entry.messageId, text, {
+      cfg: getRuntimeConfig(),
+      accountId: entry.accountId,
+    });
+    await recordWhatsAppApprovalHistory(entry, text, `${entry.messageId}:outcome`);
+  } catch (error) {
+    // WhatsApp edits only recent messages; an old card keeps its text, and nothing was sent.
+    log.error(`WhatsApp approval card ${entry.messageId} not marked cancelled: ${String(error)}`);
+  }
+  await openStore(getWhatsAppRuntime()).delete(key);
+}
+
+export function registerWhatsAppApprovalDelivery(api: OpenClawPluginApi): void {
   api.on("after_tool_call", async (event, ctx) => {
     const runId = event.runId ?? ctx.runId;
     const toolCallId = event.toolCallId ?? ctx.toolCallId;
@@ -154,6 +220,6 @@ export function registerWhatsAppApprovalDelivery(api: OpenClawPluginApi): void {
     if (!stored) {
       return;
     }
-    await queueReceipt(key, stored, deliveryOutcome(event));
+    await queueReceipt(key, stored, deliveryOutcome(event), api.logger);
   });
 }
