@@ -47,6 +47,8 @@ The pack needs Node.js 24 with npm 11 or newer installed next to the `node` bina
 
 Install the plugin before you add the keys below to the config: until the plugin is installed, OpenClaw refuses `plugins.entries.whatsapp-for-business`.
 
+An installed plugin is not bundled, so OpenClaw blocks its conversation hooks until `plugins.entries.whatsapp-for-business.hooks.allowConversationAccess` is `true`. Message cards need them: `before_prompt_build` gives a turn its cancelled proposals and `agent_end` ends a run's record of declined proposals. Without the grant the gateway logs `typed hook "before_prompt_build" blocked`.
+
 ## Taking over the `whatsapp` channel
 
 The plugin id is `whatsapp-for-business`; the channel id stays `whatsapp`. The manifest declares `channelConfigs.whatsapp.preferOver: ["whatsapp"]`. OpenClaw then validates `channels.whatsapp` with this plugin's schema and does not start the upstream plugin, as long as nobody selected the upstream plugin explicitly.
@@ -79,6 +81,8 @@ A message approval card (`scope.kind: "message-send"`, `scope.target: "whatsapp"
 | Nobody answered in time                                   | `⏱️ Expired without an answer.`, and one reminder below it names who waits and since when, while their messages still wait    |
 
 A cancelled proposal reaches the next turns of the session that proposed it as prompt context (`cancelled_proposals`, from the `before_prompt_build` hook), with the rule to propose again what the conversation still asks for, until a newer card to the same recipient or the overdue-answer threshold. A decision reaction on a closed card resolves nothing; the plugin replies that the card is no longer active. Several cards may wait for one recipient: only a cancellation leads to a replacement. The context is read when the turn's prompt is built, because the message that starts the turn is what cancels the previous turn's proposal; a card of the session still open at that moment belongs to a run that has ended, so the turn receives it as cancelled.
+
+An expired or rejected card ends what its run may propose to those recipients: a later `message` call of the same run to one of them is refused with the reason to end the turn, because the approver already let the card pass or refused it. A new message starts a new run, which may propose again.
 
 ### `execApprovals`
 

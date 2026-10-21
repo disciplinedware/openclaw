@@ -676,6 +676,9 @@ describe("whatsappApprovalNativeRuntime message cards", () => {
     const edit = vi.spyOn(send, "editMessageWhatsApp").mockResolvedValue(undefined);
     const guest = "+5219902410673";
     const minute = (value: number) => Date.UTC(2026, 9, 20, 21, value);
+    // The card shows a message's date only when it is not today's.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(minute(20));
     await recordWhatsAppUnansweredMessage(
       { accountId: "default", personE164: guest },
       {
@@ -699,6 +702,7 @@ describe("whatsappApprovalNativeRuntime message cards", () => {
             title: "Approve message?",
             description: "💬 Заселение с 15:00.",
             sessionKey: "agent:assistant:whatsapp:default:direct:+5219902410673",
+            runId: `run-${id}`,
             scope: {
               kind: "message-send",
               target: "whatsapp",
@@ -708,7 +712,8 @@ describe("whatsappApprovalNativeRuntime message cards", () => {
           },
         },
       } as never);
-    const { readWhatsAppCancelledProposals } = await import("./approval-cards.js");
+    const { listWhatsAppRecipientsDeclinedInRun, readWhatsAppCancelledProposals } =
+      await import("./approval-cards.js");
     const guestSession = "agent:assistant:whatsapp:default:direct:+5219902410673";
     try {
       const first = await deliver("plugin:first");
@@ -741,12 +746,18 @@ describe("whatsappApprovalNativeRuntime message cards", () => {
         payload: { outcome: "expired", text: "⏱️ Expired without an answer." },
       } as never);
       expect(sendMessage).toHaveBeenCalledTimes(sentBefore + 1);
+      // The expired card's run may not propose to the guest again; the cancelled one's could.
+      expect(listWhatsAppRecipientsDeclinedInRun("run-plugin:second")).toEqual([
+        { accountId: "default", personE164: guest },
+      ]);
+      expect(listWhatsAppRecipientsDeclinedInRun("run-plugin:first")).toEqual([]);
       expect(sendMessage).toHaveBeenLastCalledWith(
         "+79262070342",
         "⏳ Lika has been waiting for an answer since 16:15.",
         expect.objectContaining({ quotedMessageKey: expect.objectContaining({ id: "card-2" }) }),
       );
     } finally {
+      vi.useRealTimers();
       vi.restoreAllMocks();
     }
   });

@@ -14,6 +14,8 @@ Versions follow the upstream OpenClaw version they build on, with OpenClaw's cor
 
 ### Changed
 
+- A run whose card expired or was rejected cannot propose to the same recipients again: the send guard refuses the call with the reason to end the turn. The agent proposed the same text again after each expiry, a new card every five minutes, because the turn's context repeats the rule to answer every unanswered message after each tool result.
+- The README names the grant an installed plugin needs for its conversation hooks (`hooks.allowConversationAccess`): without it OpenClaw blocks `before_prompt_build`, and the turn received no cancelled proposals.
 - A session's turn receives the proposals that the message starting it cancelled. The plugin read them when the message arrived, before the message cancelled the running turn, so the turn after a cancelled card saw nothing and the guest never got the cancelled answer.
 
 - A rejection reads `❌ Rejected.` instead of `❌ Not run.`, and an expiry `⏱️ Expired without an answer.` without the request for a new proposal, which made the agent propose again every five minutes.
