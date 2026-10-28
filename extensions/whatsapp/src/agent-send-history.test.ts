@@ -4,7 +4,6 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerWhatsAppAgentSendHistory } from "./agent-send-history.js";
-import { WHATSAPP_HISTORY_CUSTOM_TYPE } from "./own-message-history.js";
 
 const memoryState = vi.hoisted(() => ({ namespaces: new Map<string, Map<string, unknown>>() }));
 const appendTranscript = vi.hoisted(() => vi.fn(async () => ({ kind: "result" as const })));
@@ -157,7 +156,7 @@ describe("agent send history", () => {
       expect.objectContaining({
         message: expect.objectContaining({
           role: "custom",
-          customType: WHATSAPP_HISTORY_CUSTOM_TYPE,
+          customType: "whatsapp.history",
           content: [
             {
               type: "text",

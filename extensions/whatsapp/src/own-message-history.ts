@@ -14,7 +14,7 @@ import { getWhatsAppRuntime } from "./runtime.js";
 
 const OWN_MESSAGE_HISTORY_NAMESPACE = "whatsapp.own-message-history";
 /** customType of the chat history the plugin records, read by the model as context. */
-export const WHATSAPP_HISTORY_CUSTOM_TYPE = "whatsapp.history";
+const WHATSAPP_HISTORY_CUSTOM_TYPE = "whatsapp.history";
 const LEGACY_OWN_MESSAGE_HISTORY_TTL_MS = 24 * 60 * 60 * 1000;
 
 type WhatsAppOwnMessageAuthor = "phone" | "assistant";

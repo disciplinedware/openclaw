@@ -10,7 +10,7 @@ import { getWhatsAppRuntime } from "./runtime.js";
  * queue mode `interrupt` the turn sees only that its tool call was interrupted, with an unknown
  * outcome, and nothing of them was sent. Undefined when there are none.
  */
-export function buildWhatsAppCancelledProposalsContext(
+function buildWhatsAppCancelledProposalsContext(
   proposals: readonly WhatsAppCancelledProposal[],
 ): string | undefined {
   if (proposals.length === 0) {
