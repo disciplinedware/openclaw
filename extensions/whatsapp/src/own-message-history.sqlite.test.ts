@@ -21,7 +21,6 @@ import { setWhatsAppRuntime } from "../runtime-setter-api.js";
 import {
   registerWhatsAppOwnMessageHistory,
   recordWhatsAppOwnMessageHistory,
-  WHATSAPP_HISTORY_CUSTOM_TYPE,
 } from "./own-message-history.js";
 import { WHATSAPP_FOR_BUSINESS_PLUGIN_ID } from "./plugin-id.js";
 
@@ -150,7 +149,7 @@ describe("WhatsApp own message transcript history", () => {
       expect(entries.map(({ message: row }) => row)).toMatchObject([
         {
           role: "custom",
-          customType: WHATSAPP_HISTORY_CUSTOM_TYPE,
+          customType: "whatsapp.history",
           content: [
             {
               type: "text",
@@ -163,7 +162,7 @@ describe("WhatsApp own message transcript history", () => {
         },
         {
           role: "custom",
-          customType: WHATSAPP_HISTORY_CUSTOM_TYPE,
+          customType: "whatsapp.history",
           content: [
             {
               type: "text",

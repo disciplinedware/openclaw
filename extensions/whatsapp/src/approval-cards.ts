@@ -194,11 +194,16 @@ export async function readWhatsAppCancelledProposals(
 ): Promise<WhatsAppCancelledProposal[]> {
   const stored = await lookupStored(proposalsKey(sessionKey));
   return (stored?.proposals ?? [])
-    .map(({ recipients, description, cancelledAtMs }) => ({
-      recipients,
-      ...(description !== undefined ? { description } : {}),
-      cancelledAtMs: cancelledAtMs ?? nowMs,
-    }))
+    .map(({ recipients, description, cancelledAtMs }) => {
+      const proposal: WhatsAppCancelledProposal = {
+        recipients,
+        cancelledAtMs: cancelledAtMs ?? nowMs,
+      };
+      if (description !== undefined) {
+        proposal.description = description;
+      }
+      return proposal;
+    })
     .filter((proposal) => nowMs - proposal.cancelledAtMs <= WHATSAPP_OVERDUE_ANSWER_THRESHOLD_MS);
 }
 
