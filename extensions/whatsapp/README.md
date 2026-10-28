@@ -1,6 +1,6 @@
 # whatsapp-for-business
 
-The OpenClaw WhatsApp channel plugin (`@openclaw/whatsapp`, OpenClaw `v2026.10.2`), built from the disciplinedware fork of OpenClaw (github.com/disciplinedware/openclaw). Branch `whatsapp-own-messages-approvals` holds own messages and native approvals in the shape upstream would take them; branch `whatsapp-for-business` adds one packaging commit that publishes them as this package, and then the `owner` target and cross-chat send history. It keeps the channel id `whatsapp`, so routing, session keys, `toolsBySender` keys (`e164:<phone>`) and other plugins see no difference. It changes these things:
+The OpenClaw WhatsApp channel plugin (`@openclaw/whatsapp`, OpenClaw `v2026.10.8`), built from the disciplinedware fork of OpenClaw (github.com/disciplinedware/openclaw). Branch `whatsapp-own-messages-approvals` holds own messages and native approvals in the shape upstream would take them; branch `whatsapp-for-business` adds one packaging commit that publishes them as this package, and then the `owner` target and cross-chat send history. It keeps the channel id `whatsapp`, so routing, session keys, `toolsBySender` keys (`e164:<phone>`) and other plugins see no difference. It changes these things:
 
 | Capability          | Config key                                                                    | Upstream behavior                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -13,7 +13,7 @@ The OpenClaw WhatsApp channel plugin (`@openclaw/whatsapp`, OpenClaw `v2026.10.2
 | Unanswered messages | none                                                                          | A new message under queue mode `interrupt` cancels the running turn and its pending proposal. The next turn sees the cancelled proposal in the transcript and cannot tell that it was never delivered. While a person has several messages without a delivered answer, each turn receives them with their text and the rule to answer all of them.                                                                                         |
 | Message cards       | `plugins.entries.whatsapp-for-business.config.approvalUnansweredMessageLimit` | A message approval shows only the requester's text, and a cancelled one reads as denied. A message card shows the recipient's unanswered messages above the proposal; a card cancelled before a decision reads as cancelled and, once a newer card for the same recipient follows, as updated below; the next turn of the session receives its cancelled proposals; an expired card is followed by one reminder while the recipient waits. |
 
-Native approvals follow `channels.telegram.execApprovals`: the same keys, the same approver fallback to `commands.ownerAllowFrom`, the same DM-first delivery. This is a breaking change against upstream: `allowFrom` no longer makes anyone an approver, so a config that relied on it must name the approvers in `execApprovals.approvers` or `commands.ownerAllowFrom`. Without `ownMessages`, own messages behave as upstream. `NOTICE` names the upstream source; `git diff v2026.10.2 whatsapp-for-business -- extensions/whatsapp src/config` shows every change.
+Native approvals follow `channels.telegram.execApprovals`: the same keys, the same approver fallback to `commands.ownerAllowFrom`, the same DM-first delivery. This is a breaking change against upstream: `allowFrom` no longer makes anyone an approver, so a config that relied on it must name the approvers in `execApprovals.approvers` or `commands.ownerAllowFrom`. Without `ownMessages`, own messages behave as upstream. `NOTICE` names the upstream source; `git diff v2026.10.8 whatsapp-for-business -- extensions/whatsapp src/config` shows every change.
 
 ## Requirements
 
@@ -28,8 +28,8 @@ An approved send that an interrupted process never settled produces an unknown o
 Receipt recovery is at least once: a crash after transport acceptance can repeat a status notice.
 Cards and status notices enter the owner's native transcript with source and recipient conversation references. These references remain history-only.
 
-- OpenClaw `2026.10.2` (`compat.pluginApi >=2026.10.2`).
-- Node.js `>=24.16.0 <25 || >=26.1.0`, as OpenClaw requires.
+- OpenClaw `2026.10.8` (`compat.pluginApi >=2026.10.8`).
+- Node.js `>=24.22.1 <25 || >=26.12.1`, as OpenClaw requires.
 
 ## Install from a local path
 
@@ -39,11 +39,11 @@ Pack the plugin with OpenClaw's own plugin pack script, from the fork's root on 
 pnpm install --frozen-lockfile
 pnpm build                      # the pack needs the host SDK output in dist/plugin-sdk
 OPENCLAW_PLUGIN_NPM_PACK_OUTPUT_DIR=/tmp/plugins bash scripts/plugin-npm-publish.sh --pack extensions/whatsapp
-openclaw plugins install npm-pack:/tmp/plugins/disciplinedware-whatsapp-for-business-2026.10.2-1.tgz \
+openclaw plugins install npm-pack:/tmp/plugins/disciplinedware-whatsapp-for-business-2026.10.8-1.tgz \
   --force --accept-capabilities
 ```
 
-The pack needs Node.js 24 with npm 11 or newer installed next to the `node` binary: OpenClaw's npm runner prefers that npm, and npm 10 runs Baileys' `prepare` script and fails. The tarball bundles its runtime dependencies, including Baileys with the patch the monorepo applies (`patches/baileys@7.0.0-rc14.patch`). The version follows OpenClaw's release grammar: `2026.10.2-1` is a correction of `2026.10.2`.
+The pack needs Node.js 24 with npm 11 or newer installed next to the `node` binary: OpenClaw's npm runner prefers that npm, and npm 10 runs Baileys' `prepare` script and fails. The tarball bundles its runtime dependencies, including Baileys with the patch the monorepo applies (`patches/baileys@7.0.0-rc14.patch`). The version follows OpenClaw's release grammar: `2026.10.8-1` is a correction of `2026.10.8`.
 
 Install the plugin before you add the keys below to the config: until the plugin is installed, OpenClaw refuses `plugins.entries.whatsapp-for-business`.
 
@@ -231,7 +231,7 @@ The code lives in the OpenClaw monorepo, so OpenClaw's own tooling builds and ch
 
 ```bash
 pnpm test extensions/whatsapp                              # the extension's whole suite, monorepo-only tests included
-pnpm check:changed --base v2026.10.2 --head HEAD           # OpenClaw's changed-file gate: type checks, lint, ratchets
+pnpm check:changed --base v2026.10.8 --head HEAD           # OpenClaw's changed-file gate: type checks, lint, ratchets
 node --import ./scripts/tsx.mjs extensions/whatsapp/scripts/write-channel-config-schema.mts   # rewrite channelConfigs
 ```
 
