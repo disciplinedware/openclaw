@@ -32,7 +32,9 @@ vi.mock("./runtime.js", async (importOriginal) => {
   };
 });
 
-vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/runtime-config-snapshot")>()),
+
   getRuntimeConfig: () => ({
     session: { dmScope: "per-account-channel-peer" },
     channels: { whatsapp: {} },
@@ -44,7 +46,10 @@ vi.mock("openclaw/plugin-sdk/session-transcript-runtime", async (importOriginal)
 }));
 
 const accessControl = vi.hoisted(() => ({ checkInboundAccessControl: vi.fn() }));
-vi.mock("./inbound/access-control.js", () => accessControl);
+vi.mock("./inbound/access-control.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./inbound/access-control.js")>()),
+  ...accessControl,
+}));
 
 const SELF = "+15550000100";
 const SELF_JID = "15550000100@s.whatsapp.net";

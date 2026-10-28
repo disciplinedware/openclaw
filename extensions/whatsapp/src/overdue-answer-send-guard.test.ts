@@ -29,12 +29,16 @@ vi.mock("./runtime.js", async (importOriginal) => {
 
 // The live connection of each account, which resolves a number to the person WhatsApp registered.
 const liveListeners = vi.hoisted(() => new Map<string, { recipients: unknown }>());
-vi.mock("./active-listener.js", () => ({
+vi.mock("./active-listener.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./active-listener.js")>()),
+
   getActiveWebListener: (accountId: string) => liveListeners.get(accountId) ?? null,
 }));
 
 const runtimeConfig = vi.hoisted(() => ({ current: undefined as unknown }));
-vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/runtime-config-snapshot")>()),
+
   getRuntimeConfig: () => runtimeConfig.current,
 }));
 

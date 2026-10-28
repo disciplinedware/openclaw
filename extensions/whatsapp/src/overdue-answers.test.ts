@@ -18,7 +18,9 @@ const runtimes = vi.hoisted(() => ({
 }));
 const runtimeConfig = vi.hoisted(() => ({ current: undefined as unknown }));
 
-vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/runtime-config-snapshot")>()),
+
   getRuntimeConfig: () => runtimeConfig.current,
 }));
 
