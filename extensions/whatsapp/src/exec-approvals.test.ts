@@ -16,7 +16,9 @@ const resolverMocks = vi.hoisted(() => ({
   resolveApprovalOverGateway: vi.fn(),
 }));
 
-vi.mock("openclaw/plugin-sdk/approval-gateway-runtime", () => ({
+vi.mock("openclaw/plugin-sdk/approval-gateway-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/approval-gateway-runtime")>()),
+
   resolveApprovalOverGateway: resolverMocks.resolveApprovalOverGateway,
 }));
 

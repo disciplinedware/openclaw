@@ -19,7 +19,9 @@ const runtimeConfig = vi.hoisted(() => ({ current: undefined as unknown }));
 const { readAgentRunTerminalOutcome } = vi.hoisted(() => ({
   readAgentRunTerminalOutcome: vi.fn(),
 }));
-vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/runtime-config-snapshot")>()),
+
   getRuntimeConfig: () => runtimeConfig.current,
 }));
 vi.mock("openclaw/plugin-sdk/channel-inbound", async (importOriginal) => ({

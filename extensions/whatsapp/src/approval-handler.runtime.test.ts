@@ -9,11 +9,15 @@ import { createMemoryPluginStateRuntime } from "./plugin-state.test-helper.js";
 const runtimeConfig = vi.hoisted(() => ({ current: {} as unknown }));
 const recordHistory = vi.hoisted(() => vi.fn(async (_message: unknown) => {}));
 
-vi.mock("./own-message-history.js", () => ({
+vi.mock("./own-message-history.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./own-message-history.js")>()),
+
   recordWhatsAppAssistantMessageHistory: recordHistory,
 }));
 
-vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/runtime-config-snapshot")>()),
+
   getRuntimeConfig: () => runtimeConfig.current,
 }));
 

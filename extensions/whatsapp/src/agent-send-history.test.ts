@@ -20,17 +20,22 @@ vi.mock("./runtime.js", async (importOriginal) => {
 });
 
 // Every account is connected; WhatsApp registers the Mexican mobile +52… as 521….
-vi.mock("./active-listener.js", async () => {
+vi.mock("./active-listener.js", async (importOriginal) => {
   const { createTestWhatsAppRecipientResolver } =
     await import("./inbound/recipient-resolver.test-helper.js");
   const recipients = createTestWhatsAppRecipientResolver({
     "525500000000@s.whatsapp.net": "5215500000000@s.whatsapp.net",
   });
-  return { getActiveWebListener: () => ({ recipients }) };
+  return {
+    ...(await importOriginal<typeof import("./active-listener.js")>()),
+    getActiveWebListener: () => ({ recipients }),
+  };
 });
 
 const runtimeConfig = vi.hoisted(() => ({ current: undefined as unknown }));
-vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/runtime-config-snapshot")>()),
+
   getRuntimeConfig: () => runtimeConfig.current,
 }));
 vi.mock("openclaw/plugin-sdk/session-transcript-runtime", async (importOriginal) => ({

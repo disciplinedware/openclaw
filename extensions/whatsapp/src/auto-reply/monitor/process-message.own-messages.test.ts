@@ -51,7 +51,9 @@ vi.mock("./inbound-dispatch.js", async (importOriginal) => {
   };
 });
 
-vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/runtime-config-snapshot")>()),
+
   getRuntimeConfig: () => ({
     session: { dmScope: "per-account-channel-peer" },
     channels: { whatsapp: {} },

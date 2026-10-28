@@ -5,7 +5,9 @@ import {
 } from "./approval-text.js";
 
 const runtimeConfig = vi.hoisted(() => ({ current: {} as unknown }));
-vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", () => ({
+vi.mock("openclaw/plugin-sdk/runtime-config-snapshot", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/runtime-config-snapshot")>()),
+
   getRuntimeConfig: () => runtimeConfig.current,
 }));
 
