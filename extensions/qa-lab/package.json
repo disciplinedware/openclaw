@@ -23,7 +23,7 @@
     "@openclaw/mattermost": "workspace:*",
     "@openclaw/plugin-sdk": "workspace:*",
     "@openclaw/slack": "workspace:*",
-    "@openclaw/whatsapp": "workspace:*",
+    "@openclaw/whatsapp": "workspace:@disciplinedware/whatsapp-for-business@*",
     "openclaw": "workspace:*",
     "vite": "8.3.2"
   },
