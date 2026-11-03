@@ -2036,7 +2036,7 @@ importers:
         specifier: workspace:*
         version: link:../slack
       '@openclaw/whatsapp':
-        specifier: workspace:@disciplinedware/whatsapp-for-business@*
+        specifier: link:../whatsapp
         version: link:../whatsapp
       openclaw:
         specifier: workspace:*
