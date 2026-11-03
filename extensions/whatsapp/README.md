@@ -1,6 +1,6 @@
 # whatsapp-for-business
 
-The OpenClaw WhatsApp channel plugin (`@openclaw/whatsapp`, OpenClaw `v2026.10.9`), built from the disciplinedware fork of OpenClaw (github.com/disciplinedware/openclaw). Branch `whatsapp-own-messages-approvals` holds own messages and native approvals in the shape upstream would take them; branch `whatsapp-for-business` adds one packaging commit that publishes them as this package, and then the `owner` target and cross-chat send history. It keeps the channel id `whatsapp`, so routing, session keys, `toolsBySender` keys (`e164:<phone>`) and other plugins see no difference. It changes these things:
+The OpenClaw WhatsApp channel plugin (`@openclaw/whatsapp`, OpenClaw `v2026.10.9`), built from the disciplinedware fork of OpenClaw (github.com/disciplinedware/openclaw). Branch `whatsapp-own-messages-approvals` holds own messages and native approvals in the shape upstream would take them; branch `whatsapp-for-business-2026.10.9` adds one packaging commit that publishes them as this package, and then the `owner` target and cross-chat send history. Each OpenClaw release gets its own branch `whatsapp-for-business-<version>`, and an older branch is never rewritten, because builds pin its commits. It keeps the channel id `whatsapp`, so routing, session keys, `toolsBySender` keys (`e164:<phone>`) and other plugins see no difference. It changes these things:
 
 | Capability          | Config key                                                                    | Upstream behavior                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -33,7 +33,7 @@ Cards and status notices enter the owner's native transcript with source and rec
 
 ## Install from a local path
 
-Pack the plugin with OpenClaw's own plugin pack script, from the fork's root on branch `whatsapp-for-business`, then install the tarball:
+Pack the plugin with OpenClaw's own plugin pack script, from the fork's root on branch `whatsapp-for-business-2026.10.9`, then install the tarball:
 
 ```bash
 pnpm install --frozen-lockfile
