@@ -6,6 +6,10 @@ import {
   type WASocket,
 } from "baileys";
 import { recordChannelActivity } from "openclaw/plugin-sdk/channel-activity-runtime";
+import {
+  formatLocationText,
+  formatMediaPlaceholderText,
+} from "openclaw/plugin-sdk/channel-inbound";
 import { resolveInboundDebounceMs } from "openclaw/plugin-sdk/channel-inbound-debounce";
 import { pruneMapToMaxSize } from "openclaw/plugin-sdk/collection-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
@@ -15,6 +19,7 @@ import { parseStrictFiniteNumber } from "openclaw/plugin-sdk/number-runtime";
 import { defaultRuntime, createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { raceWithTimeout } from "openclaw/plugin-sdk/time-runtime";
 import { maybeResolveWhatsAppApprovalReaction } from "../approval-reactions.js";
+import { recordWhatsAppConversationMessage } from "../conversation-history.js";
 import { resolveComparableIdentity } from "../identity.js";
 import { addWhatsAppImagePreviewFields } from "../image-preview.js";
 import { maybeResolveWhatsAppQuestionReaction } from "../question-reactions.js";
@@ -30,6 +35,12 @@ import {
   type WhatsAppIngressLifecycle,
   type WhatsAppReadReceiptTarget,
 } from "./durable-receive.js";
+import {
+  extractText,
+  extractMediaKind,
+  extractLocationData,
+  hasInboundUserContent,
+} from "./extract.js";
 import type { WhatsAppGroupMetadataCacheOwner } from "./group-metadata-cache.js";
 import {
   createWhatsAppInboundMessageDebouncer,
@@ -423,7 +434,34 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
     if (await resolveApprovalReaction(msg)) {
       return "completed";
     }
+    const recordHistory = async (peer: string, author: "phone" | "guest") => {
+      const mediaKind = extractMediaKind(msg.message ?? undefined);
+      const location = extractLocationData(msg.message ?? undefined);
+      await recordWhatsAppConversationMessage({
+        cfg: options.loadConfig?.() ?? options.cfg,
+        accountId: options.accountId,
+        peer,
+        messageId: id!,
+        text: [
+          extractText(msg.message ?? undefined),
+          location ? formatLocationText(location) : undefined,
+          mediaKind ? formatMediaPlaceholderText([{ kind: mediaKind }]) : undefined,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        timestampMs:
+          (parseWhatsAppTimestampSeconds(msg.messageTimestamp) ?? context.receivedAt / 1000) * 1000,
+        author,
+      });
+    };
     const prepared = await preparation;
+    if (msg.key?.fromMe && remoteJid && id && hasInboundUserContent(msg.message ?? undefined)) {
+      const peer = await resolveInboundJid(remoteJid);
+      if (peer?.startsWith("+") && peer !== self.e164) {
+        await recordHistory(peer, "phone");
+        return "completed";
+      }
+    }
     if (prepared === null) {
       return "completed";
     }
@@ -446,6 +484,9 @@ export function createWhatsAppMessageDeliveryCoordinator(options: WhatsAppMessag
     const readReceipt = buildReadReceiptTarget(inbound);
     const deliveryReadReceipt = inbound.access.isSelfChat ? undefined : readReceipt;
     if (context.skipStaleAppend === true) {
+      if (id && inbound.from.startsWith("+")) {
+        await recordHistory(inbound.from, "guest");
+      }
       await maybeMarkNonSelfChatReadReceipt(inbound, readReceipt);
       return "completed";
     }

@@ -64,6 +64,7 @@ describe("whatsapp channel action helpers", () => {
     } as OpenClawConfig;
 
     expect(describeWhatsAppMessageActions({ cfg, accountId: "default" })?.actions).toEqual([
+      "send",
       "react",
       "poll",
       "upload-file",
@@ -87,6 +88,7 @@ describe("whatsapp channel action helpers", () => {
     } as OpenClawConfig;
 
     expect(describeWhatsAppMessageActions({ cfg, accountId: "default" })?.actions).toEqual([
+      "send",
       "poll",
       "upload-file",
     ]);
@@ -108,6 +110,7 @@ describe("whatsapp channel action helpers", () => {
     } as OpenClawConfig;
 
     expect(describeWhatsAppMessageActions({ cfg, accountId: "work" })?.actions).toEqual([
+      "send",
       "react",
       "poll",
       "upload-file",
@@ -130,6 +133,7 @@ describe("whatsapp channel action helpers", () => {
     } as OpenClawConfig;
 
     expect(describeWhatsAppMessageActions({ cfg })?.actions).toEqual([
+      "send",
       "react",
       "poll",
       "upload-file",
@@ -152,6 +156,10 @@ describe("whatsapp channel action helpers", () => {
       },
     } as OpenClawConfig;
 
-    expect(describeWhatsAppMessageActions({ cfg })?.actions).toEqual(["poll", "upload-file"]);
+    expect(describeWhatsAppMessageActions({ cfg })?.actions).toEqual([
+      "send",
+      "poll",
+      "upload-file",
+    ]);
   });
 });

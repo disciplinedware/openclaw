@@ -468,6 +468,7 @@ describe("WhatsApp delivery recovery", () => {
         sendComposingTo: vi.fn(async () => {}),
         sendMessage,
         sendPoll: vi.fn(async () => createAcceptedWhatsAppSendResult("poll", "poll")),
+        editMessage: vi.fn(async () => {}),
         sendReaction: vi.fn(async () => createAcceptedWhatsAppSendResult("reaction", "reaction")),
       };
       const controller = {

@@ -39,6 +39,9 @@ const loadWhatsAppDirectoryConfig = createLazyRuntimeModule(() => import("./dire
 const loadWhatsAppChannelReactAction = createLazyRuntimeModule(
   () => import("./channel-react-action.js"),
 );
+const loadWhatsAppChannelSendAction = createLazyRuntimeModule(
+  () => import("./channel-send-action.js"),
+);
 
 type WhatsAppStatusSnapshot = ChannelAccountSnapshot & {
   self: WhatsAppSelfIdentity | null;
@@ -168,11 +171,14 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> =
         },
         describeMessageTool: ({ cfg, accountId }) =>
           describeWhatsAppMessageActions({ cfg, accountId }),
-        supportsAction: ({ action }) => action === "react" || action === "upload-file",
+        supportsAction: ({ action }) =>
+          action === "send" || action === "react" || action === "upload-file",
         resolveExecutionMode: ({ action }) =>
-          action === "react" || action === "upload-file" ? "gateway" : "local",
+          action === "send" || action === "react" || action === "upload-file" ? "gateway" : "local",
         handleAction: async (params) =>
-          await (await loadWhatsAppChannelReactAction()).handleWhatsAppMessageAction(params),
+          params.action === "send"
+            ? await (await loadWhatsAppChannelSendAction()).handleWhatsAppSendAction(params)
+            : await (await loadWhatsAppChannelReactAction()).handleWhatsAppMessageAction(params),
       },
       approvalCapability: whatsappApprovalCapability,
       auth: {

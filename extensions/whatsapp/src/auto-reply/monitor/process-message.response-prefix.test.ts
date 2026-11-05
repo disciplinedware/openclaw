@@ -68,6 +68,7 @@ describe("WhatsApp inbound and outbound response-prefix boundary", () => {
           sendPoll: async () => {
             throw new Error("Unexpected poll delivery");
           },
+          editMessage: async () => {},
           sendReaction: async () => {
             throw new Error("Unexpected reaction delivery");
           },

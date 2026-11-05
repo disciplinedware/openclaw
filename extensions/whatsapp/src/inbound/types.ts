@@ -42,6 +42,8 @@ export type ActiveWebListener = {
     participant?: string,
   ) => Promise<WhatsAppSendResult>;
   sendComposingTo: (to: string) => Promise<void>;
+  /** Replaces the text of a message this account sent. */
+  editMessage: (chatJid: string, messageId: string, text: string) => Promise<void>;
   close?: () => Promise<void>;
 };
 

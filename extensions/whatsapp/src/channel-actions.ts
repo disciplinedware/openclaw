@@ -1,6 +1,10 @@
 import { createActionGate } from "openclaw/plugin-sdk/channel-actions";
-import type { ChannelMessageActionName } from "openclaw/plugin-sdk/channel-contract";
+import type {
+  ChannelMessageActionName,
+  ChannelMessageToolDiscovery,
+} from "openclaw/plugin-sdk/channel-contract";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { Type } from "typebox";
 import { listWhatsAppAccountIds, resolveWhatsAppAccount } from "./accounts.js";
 import { resolveWhatsAppReactionLevel } from "./reaction-level.js";
 
@@ -47,12 +51,12 @@ function hasAnyWhatsAppAccountWithAgentReactionsEnabled(cfg: OpenClawConfig) {
 export function describeWhatsAppMessageActions(params: {
   cfg: OpenClawConfig;
   accountId?: string | null;
-}): { actions: ChannelMessageActionName[] } | null {
+}): ChannelMessageToolDiscovery | null {
   if (!params.cfg.channels?.whatsapp) {
     return null;
   }
   const gate = createActionGate(params.cfg.channels.whatsapp.actions);
-  const actions: ChannelMessageActionName[] = [];
+  const actions: ChannelMessageActionName[] = ["send"];
   const canReact =
     params.accountId != null
       ? Boolean(
@@ -69,5 +73,21 @@ export function describeWhatsAppMessageActions(params: {
     actions.push("poll");
   }
   actions.push("upload-file");
-  return { actions };
+  return {
+    actions,
+    schema: [
+      {
+        properties: {
+          requestApproval: Type.Optional(
+            Type.Boolean({
+              description:
+                "Set to true when a human must approve this message before it is sent. Keep target as the intended recipient and message as the exact proposed text; do not message the approver separately. Omit for ordinary sends; a policy may still require approval. This flag does not approve delivery.",
+            }),
+          ),
+        },
+        actions: ["send"],
+        visibility: "all-configured",
+      },
+    ],
+  };
 }

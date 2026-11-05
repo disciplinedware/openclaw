@@ -2,7 +2,11 @@ import type { WAMessageKey, WASocket } from "baileys";
 import { getChildLogger } from "openclaw/plugin-sdk/logging-core";
 import { createSubsystemLogger, defaultRuntime } from "openclaw/plugin-sdk/runtime-env";
 import { createWaSocket, waitForWaConnection } from "../session.js";
-import { resolveWhatsAppSocketTiming, type WhatsAppSocketTimingOptions } from "../socket-timing.js";
+import {
+  resolveWhatsAppSocketTiming,
+  withWhatsAppSocketOperationTimeout,
+  type WhatsAppSocketTimingOptions,
+} from "../socket-timing.js";
 import {
   readWhatsAppBaileysCacheEntry,
   type WhatsAppBaileysGroupMetadataCache,
@@ -73,11 +77,31 @@ export async function attachWebInboxToSocket(
     socketSession,
     groupMetadata,
   });
+  // A number's registered chat, as WhatsApp answered it for this connection.
+  const registeredJids = new Map<string, string>();
   const sendApi = createWebSendApi({
     sock: socketSession.socketOperations,
     defaultAccountId: options.accountId,
     resolveOutboundMentions: ({ jid, text }) => groupMetadata.resolveOutboundMentions(jid, text),
     authDir: options.authDir,
+    lookupRegisteredJid: async (jid) => {
+      const known = registeredJids.get(jid);
+      if (known) {
+        return known;
+      }
+      const sock = socketSession.getCurrentSock() ?? options.sock;
+      const [found] =
+        (await withWhatsAppSocketOperationTimeout(
+          "onWhatsApp",
+          sock.onWhatsApp(jid),
+          options.socketTiming.defaultQueryTimeoutMs,
+        )) ?? [];
+      if (found?.exists && found.jid) {
+        registeredJids.set(jid, found.jid);
+        return found.jid;
+      }
+      return undefined;
+    },
   });
 
   delivery.start();
@@ -104,6 +128,7 @@ export async function attachWebInboxToSocket(
     sendMessage: sendApi.sendMessage,
     sendPoll: sendApi.sendPoll,
     sendReaction: sendApi.sendReaction,
+    editMessage: sendApi.editMessage,
   } as const;
 }
 

@@ -69,6 +69,7 @@ function createListenerStub(messageId = "ok") {
   return {
     sendMessage: vi.fn(async () => createAcceptedWhatsAppSendResult("text", messageId)),
     sendPoll: vi.fn(async () => createAcceptedWhatsAppSendResult("poll", messageId)),
+    editMessage: vi.fn(async () => {}),
     sendReaction: vi.fn(async () => createAcceptedWhatsAppSendResult("reaction", messageId)),
     sendComposingTo: vi.fn(async () => {}),
   };

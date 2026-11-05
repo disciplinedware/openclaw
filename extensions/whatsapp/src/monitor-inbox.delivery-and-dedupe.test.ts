@@ -22,6 +22,7 @@ import {
 import {
   buildNotifyMessageUpsert,
   DEFAULT_ACCOUNT_ID,
+  mockLoadConfig,
   resetWebInboundDedupeForTests,
   settleInboundWork,
   startInboxMonitor,
@@ -29,6 +30,7 @@ import {
   waitForInboundWorkDrained,
   type InboxOnMessage,
 } from "./monitor-inbox.test-harness.js";
+import { whatsappPluginEntries } from "./plugin-config.test-helper.js";
 
 const approvalResolver = vi.hoisted(() => vi.fn());
 vi.mock("openclaw/plugin-sdk/approval-gateway-runtime", () => ({
@@ -113,6 +115,11 @@ describe("web monitor inbox delivery and dedupe", () => {
           await finishReplay.promise;
           return { applied: true, approval: { status: "allowed", decision: "allow-once" } };
         });
+      // Only a resolved approver settles a reaction; allowFrom admits senders only.
+      mockLoadConfig.mockReturnValue({
+        channels: { whatsapp: { allowFrom: ["*"] } },
+        plugins: whatsappPluginEntries({ execApprovals: { approvers: ["+15551230000"] } }),
+      });
       const onMessage = vi.fn();
       const queue = createWhatsAppDurableInboundQueue(DEFAULT_ACCOUNT_ID);
       const release = observeRetryRelease(queue);

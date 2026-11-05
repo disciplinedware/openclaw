@@ -143,6 +143,15 @@ describe("toWhatsappJid", () => {
 });
 
 describe("jidToE164", () => {
+  it.each([
+    ["5219980000102@s.whatsapp.net", "+529980000102"],
+    ["529980000102@s.whatsapp.net", "+529980000102"],
+    ["15551230000@s.whatsapp.net", "+15551230000"],
+    ["52199800001020@s.whatsapp.net", "+52199800001020"],
+  ])("gives %s as one number per person: %s", (jid, e164) => {
+    expect(jidToE164(jid)).toBe(e164);
+  });
+
   it("maps @lid using reverse mapping file", async () => {
     await withTempDir("openclaw-state-", async (stateDir) => {
       const previousStateDir = process.env.OPENCLAW_STATE_DIR;

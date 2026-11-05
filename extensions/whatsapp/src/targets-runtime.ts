@@ -13,6 +13,7 @@ import {
   sliceMarkdownIR,
 } from "openclaw/plugin-sdk/text-chunking";
 import { CONFIG_DIR, resolveUserPath } from "openclaw/plugin-sdk/text-utility-runtime";
+import { normalizeMexicanMobileE164 } from "./normalize-target.js";
 
 const WHATSAPP_FORMAT_CAPABILITIES = FormatCapabilityProfile.define({
   mechanism: "markdown",
@@ -233,7 +234,7 @@ export function jidToE164(jid: string, opts?: JidToE164Options): string | null {
   const match = jid.match(/^(\d+)(?::\d+)?@(s\.whatsapp\.net|hosted)$/);
   const phoneDigits = match?.[1];
   if (phoneDigits) {
-    return `+${phoneDigits}`;
+    return normalizeMexicanMobileE164(`+${phoneDigits}`);
   }
 
   const lidMatch = jid.match(/^(\d+)(?::\d+)?@(lid|hosted\.lid)$/);
@@ -246,7 +247,7 @@ export function jidToE164(jid: string, opts?: JidToE164Options): string | null {
   }
   const phone = readLidMapping(`lid-mapping-${lid}_reverse.json`, opts, normalizeE164);
   if (phone) {
-    return phone;
+    return normalizeMexicanMobileE164(phone);
   }
   const shouldLog = opts?.logMissing ?? shouldLogVerbose();
   if (shouldLog) {

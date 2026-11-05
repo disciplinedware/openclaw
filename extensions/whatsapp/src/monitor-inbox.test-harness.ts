@@ -15,8 +15,15 @@ import {
 } from "./pairing-security.test-harness.js";
 import { setWhatsAppRuntime } from "./runtime.js";
 
+const conversationHistory = vi.hoisted(() => ({ record: vi.fn() }));
+// mock-isolation: Socket tests own admission; conversation-history.sqlite.test.ts owns persistence.
+vi.mock("./conversation-history.js", () => ({
+  recordWhatsAppConversationMessage: conversationHistory.record,
+}));
+
 // Avoid exporting vitest mock types (TS2742 under pnpm + d.ts emit).
 type AnyMockFn = any;
+export const mockRecordConversationMessage: AnyMockFn = conversationHistory.record;
 
 export const DEFAULT_ACCOUNT_ID = "default";
 
@@ -41,6 +48,7 @@ type MockSock = {
   ws: { close: AnyMockFn };
   sendPresenceUpdate: AnyMockFn;
   sendMessage: AnyMockFn;
+  onWhatsApp: AnyMockFn;
   fetchAccountReachoutTimelock: AnyMockFn;
   readMessages: AnyMockFn;
   groupMetadata: AnyMockFn;
@@ -193,6 +201,8 @@ function createMockSock(): MockSock {
     ws: { close: vi.fn() },
     sendPresenceUpdate: createResolvedMock(),
     sendMessage: createAcceptedSendMessageMock(),
+    // Every number is registered under its own digits unless a test says otherwise.
+    onWhatsApp: vi.fn().mockImplementation(async (jid: string) => [{ jid, exists: true }]),
     fetchAccountReachoutTimelock: vi.fn().mockResolvedValue({ isActive: false }),
     readMessages: createResolvedMock(),
     groupMetadata: vi.fn().mockImplementation(async (jid: string) => ({
@@ -409,6 +419,7 @@ export function installWebMonitorInboxUnitTestHooks() {
   beforeEach(async () => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    conversationHistory.record.mockReset().mockResolvedValue(undefined);
     inboundWorkTrackers.clear();
     inboundIdle = undefined;
     channelActivityMocks.recordChannelActivity.mockClear();

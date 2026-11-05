@@ -1,0 +1,16 @@
+whatsapp-for-business
+=====================
+
+This package is the OpenClaw WhatsApp channel plugin, built from a fork of OpenClaw.
+
+Upstream project: OpenClaw (https://github.com/openclaw/openclaw)
+Upstream path:    extensions/whatsapp
+Upstream tag:     v2026.10.9
+Upstream commit:  8b18b5578f66eab1501cba4cef2310d88bfb9a41
+
+The upstream code is licensed under the MIT License,
+Copyright (c) 2026 OpenClaw Foundation. The full licence text is in LICENSE.
+
+The fork is github.com/disciplinedware/openclaw. Branch
+whatsapp-for-business-2026.10.9 is the upstream tag plus the changes made in the fork;
+`git diff v2026.10.9 whatsapp-for-business-2026.10.9` shows the complete difference.

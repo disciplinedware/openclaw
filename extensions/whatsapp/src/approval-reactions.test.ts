@@ -6,6 +6,7 @@ import {
   registerWhatsAppApprovalReactionTarget,
   resolveWhatsAppApprovalReactionTargetWithPersistence,
 } from "./approval-reactions.js";
+import { whatsappPluginEntries } from "./plugin-config.test-helper.js";
 import * as whatsappRuntime from "./runtime.js";
 import { resolveEquivalentWhatsAppDirectChatJids, resolveJidToE164 } from "./targets-runtime.js";
 
@@ -31,14 +32,8 @@ vi.mock("openclaw/plugin-sdk/error-runtime", async () => {
   };
 });
 
-function approvalConfig(allowFrom: string[]) {
-  return {
-    channels: {
-      whatsapp: {
-        allowFrom,
-      },
-    },
-  };
+function approvalConfig(approvers: string[]) {
+  return { plugins: whatsappPluginEntries({ execApprovals: { approvers } }) };
 }
 
 async function registerExecApprovalTarget(params: {

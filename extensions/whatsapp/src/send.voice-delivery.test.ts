@@ -69,6 +69,7 @@ describe("WhatsApp gateway voice delivery", () => {
   const sendComposingTo = vi.fn(async () => {});
   const sendMessage = vi.fn(async () => createAcceptedWhatsAppSendResult("text", "msg123"));
   const sendPoll = vi.fn(async () => createAcceptedWhatsAppSendResult("poll", "poll123"));
+  const editMessage = vi.fn(async () => {});
   const sendReaction = vi.fn(async () =>
     createAcceptedWhatsAppSendResult("reaction", "reaction123"),
   );
@@ -89,6 +90,7 @@ describe("WhatsApp gateway voice delivery", () => {
       sendMessage,
       sendPoll,
       sendReaction,
+      editMessage,
     });
   });
 
@@ -142,6 +144,7 @@ describe("WhatsApp gateway voice delivery", () => {
       sendMessage: listenerSendMessage,
       sendPoll,
       sendReaction,
+      editMessage,
     });
     const onDeliveryResult = vi.fn();
 
@@ -176,6 +179,7 @@ describe("WhatsApp gateway voice delivery", () => {
           expect.objectContaining({ platformMessageId: "gateway-scoped-voice", kind: "media" }),
         ],
       }),
+      text: "",
     });
     expect(onDeliveryResult).toHaveBeenNthCalledWith(2, {
       messageId: "gateway-scoped-caption",
@@ -186,6 +190,7 @@ describe("WhatsApp gateway voice delivery", () => {
           expect.objectContaining({ platformMessageId: "gateway-scoped-caption", kind: "text" }),
         ],
       }),
+      text: "voice caption",
     });
     expect(recordChannelActivity).toHaveBeenCalledExactlyOnceWith({
       channel: "whatsapp",

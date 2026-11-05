@@ -909,3 +909,43 @@ describe("createWebSendApi LID resolution (issue #67378)", () => {
     expect(sendPresenceUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe("createWebSendApi with the registered chat lookup", () => {
+  const sendMessage = vi.fn(
+    async (): Promise<WAMessage | undefined> => ({ key: { id: "msg-1" } }) as WAMessage,
+  );
+  const sendPresenceUpdate = vi.fn(async () => {});
+  // A Mexican mobile written +52 998 000 0102 is registered as 521 998 000 0102.
+  const lookupRegisteredJid = vi.fn(async (jid: string) =>
+    jid === "529980000102@s.whatsapp.net" ? "5219980000102@s.whatsapp.net" : undefined,
+  );
+  const api = () =>
+    createWebSendApi({
+      sock: { sendMessage, sendPresenceUpdate },
+      defaultAccountId: "main",
+      lookupRegisteredJid,
+    });
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it("sends a number to the chat WhatsApp registered for it", async () => {
+    await api().sendMessage("+529980000102", "Hola");
+    expect(sendMessage).toHaveBeenCalledWith("5219980000102@s.whatsapp.net", { text: "Hola" });
+  });
+
+  it("keeps the written chat when WhatsApp names no other", async () => {
+    await api().sendMessage("+15550000300", "Hello");
+    expect(sendMessage).toHaveBeenCalledWith("15550000300@s.whatsapp.net", { text: "Hello" });
+  });
+
+  it("asks nothing for a group", async () => {
+    await api().sendMessage("120363401234567890@g.us", "Hola");
+    expect(lookupRegisteredJid).not.toHaveBeenCalled();
+  });
+
+  it("fails the send when WhatsApp cannot answer, rather than send where nobody reads", async () => {
+    lookupRegisteredJid.mockRejectedValueOnce(new Error("onWhatsApp timed out"));
+    await expect(api().sendMessage("+529980000102", "Hola")).rejects.toThrow("onWhatsApp");
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+});

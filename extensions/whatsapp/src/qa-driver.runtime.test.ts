@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   sendContact: vi.fn(),
   sendLocation: vi.fn(),
   sendPoll: vi.fn(),
+  editMessage: vi.fn(async () => {}),
   sendReaction: vi.fn(),
   sendSticker: vi.fn(),
   sendMessage: vi.fn(),

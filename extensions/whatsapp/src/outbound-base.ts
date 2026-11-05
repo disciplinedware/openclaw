@@ -84,7 +84,8 @@ const dispatchMessage = async (
     ...(quotedMessageKey ? { quotedMessageKey } : {}),
     ...(onDeliveryResult
       ? {
-          onDeliveryResult: async (result) => {
+          // The part's text is for this plugin's own callers; the delivery result carries ids only.
+          onDeliveryResult: async ({ text: _text, ...result }) => {
             await onDeliveryResult(attachChannelToResult("whatsapp", result));
           },
         }
@@ -104,8 +105,8 @@ const outbound = {
     },
   },
   pollMaxOptions: 12,
-  resolveTarget: ({ to, allowFrom, mode }) =>
-    resolveWhatsAppOutboundTarget({ to, allowFrom, mode }),
+  resolveTarget: ({ cfg, to, allowFrom, mode }) =>
+    resolveWhatsAppOutboundTarget({ cfg, to, allowFrom, mode }),
   ...createAttachedChannelResultAdapter({
     channel: "whatsapp",
     sendText: async (params) => {

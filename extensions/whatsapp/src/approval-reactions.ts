@@ -22,7 +22,8 @@ import { createPluginStateErrorReporter } from "openclaw/plugin-sdk/plugin-state
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { normalizeUniqueTrimmedStringList } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveWhatsAppAccount } from "./accounts.js";
-import { getWhatsAppApprovalApprovers, whatsappApprovalAuth } from "./approval-auth.js";
+import { whatsappApprovalCapability } from "./approval-native.js";
+import { getWhatsAppExecApprovalApprovers } from "./exec-approvals.js";
 import { listWhatsAppDeliveredMessageIdentities } from "./inbound/send-result.js";
 import { buildWhatsAppReactionTargetKey } from "./reaction-target.js";
 import { getOptionalWhatsAppRuntime } from "./runtime.js";
@@ -403,8 +404,9 @@ export async function maybeResolveWhatsAppApprovalReaction(params: {
       senderId: actorId,
       gatewayUrl: params.gatewayUrl,
     },
-    approvers: getWhatsAppApprovalApprovers({ cfg: params.cfg, accountId: params.accountId }),
-    authorizeActorAction: (input) => whatsappApprovalAuth.authorizeActorAction(input),
+    approvers: getWhatsAppExecApprovalApprovers({ cfg: params.cfg, accountId: params.accountId }),
+    authorizeActorAction: (input) =>
+      whatsappApprovalCapability.authorizeActorAction?.(input) ?? { authorized: false },
     loadResolver: async () =>
       (await import("openclaw/plugin-sdk/approval-gateway-runtime")).resolveApprovalOverGateway,
     clearTarget: () =>

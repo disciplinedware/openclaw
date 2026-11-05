@@ -97,6 +97,8 @@ export async function sendMessageWhatsApp(
       messageId: string;
       toJid: string;
       receipt?: MessageReceipt;
+      /** The text of this part, as WhatsApp shows it. */
+      text: string;
     }) => Promise<void> | void;
   } & Pick<
     ChannelOutboundContext,
@@ -291,10 +293,10 @@ async function sendMessageWhatsAppInActivityScope(
     if (trailingTextChunks.length > 0) {
       // Persist each accepted part before the next fallible send so recovery
       // cannot replay already-delivered media or text chunks.
-      await reportProgress?.(result);
+      await reportProgress?.({ ...result, text });
       for (const trailingText of trailingTextChunks) {
         const trailingResult = await sendPart(trailingText);
-        await reportProgress?.(trailingResult);
+        await reportProgress?.({ ...trailingResult, text: trailingText });
       }
     }
     const durationMs = Date.now() - startedAt;
@@ -330,6 +332,21 @@ export async function sendTypingWhatsApp(
     await active.assertSendReady?.(to);
     await active.sendComposingTo(to);
   }
+}
+
+export async function editMessageWhatsApp(
+  chatJid: string,
+  messageId: string,
+  text: string,
+  options: { cfg: OpenClawConfig; accountId?: string },
+): Promise<void> {
+  const cfg = requireRuntimeConfig(options.cfg, "WhatsApp message edit");
+  const { listener: active } = requireOutboundActiveWebListener({
+    cfg,
+    accountId: options.accountId,
+  });
+  outboundLog.info(`Editing message ${messageId}`);
+  await active.editMessage(chatJid, messageId, text);
 }
 
 export async function sendReactionWhatsApp(

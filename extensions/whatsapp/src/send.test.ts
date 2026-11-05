@@ -21,6 +21,7 @@ let sendMessageWhatsApp: typeof import("./send.js").sendMessageWhatsApp;
 let sendWhatsAppUploadFile: typeof import("./send.js").sendWhatsAppUploadFile;
 let sendPollWhatsApp: typeof import("./send.js").sendPollWhatsApp;
 let sendReactionWhatsApp: typeof import("./send.js").sendReactionWhatsApp;
+let editMessageWhatsApp: typeof import("./send.js").editMessageWhatsApp;
 let sendTypingWhatsApp: typeof import("./send.js").sendTypingWhatsApp;
 let resetLogger: typeof import("openclaw/plugin-sdk/runtime-env").resetLogger;
 let setLoggerOverride: typeof import("openclaw/plugin-sdk/runtime-env").setLoggerOverride;
@@ -70,6 +71,7 @@ describe("web outbound", () => {
   const sendComposingTo = vi.fn(async () => {});
   const sendMessage = vi.fn(async () => createAcceptedWhatsAppSendResult("text", "msg123"));
   const sendPoll = vi.fn(async () => createAcceptedWhatsAppSendResult("poll", "poll123"));
+  const editMessage = vi.fn(async () => {});
   const sendReaction = vi.fn(async () =>
     createAcceptedWhatsAppSendResult("reaction", "reaction123"),
   );
@@ -81,6 +83,7 @@ describe("web outbound", () => {
       sendPollWhatsApp,
       sendReactionWhatsApp,
       sendTypingWhatsApp,
+      editMessageWhatsApp,
     } = await import("./send.js"));
     const { resetLogger: loadedResetLogger, setLoggerOverride: loadedSetLoggerOverride } =
       await import("openclaw/plugin-sdk/runtime-env");
@@ -118,6 +121,7 @@ describe("web outbound", () => {
       sendMessage,
       sendPoll,
       sendReaction,
+      editMessage,
     });
   });
 
@@ -204,6 +208,7 @@ describe("web outbound", () => {
       sendMessage,
       sendPoll,
       sendReaction,
+      editMessage,
     });
 
     await expect(
@@ -277,6 +282,7 @@ describe("web outbound", () => {
       sendMessage,
       sendPoll,
       sendReaction,
+      editMessage,
     });
 
     await expect(
@@ -444,6 +450,7 @@ describe("web outbound", () => {
       sendMessage,
       sendPoll,
       sendReaction,
+      editMessage,
     });
     loadWebMediaMock.mockResolvedValueOnce({
       buffer: Buffer.from("img"),
@@ -509,6 +516,7 @@ describe("web outbound", () => {
       sendMessage,
       sendPoll,
       sendReaction,
+      editMessage,
     });
 
     await expect(
@@ -576,5 +584,13 @@ describe("web outbound", () => {
       false,
       undefined,
     );
+  });
+
+  it("edits a message this account sent via the active listener", async () => {
+    await editMessageWhatsApp("1555@s.whatsapp.net", "msg123", "Closed card", {
+      cfg: WHATSAPP_TEST_CFG,
+    });
+    expect(editMessage).toHaveBeenCalledWith("1555@s.whatsapp.net", "msg123", "Closed card");
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });

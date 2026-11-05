@@ -1,12 +1,15 @@
 // WhatsApp monitor inbox access and echo behavior.
 import { cleanMessage } from "baileys";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isRecentOutboundMessage } from "./inbound/dedupe.js";
+import { createWhatsAppDurableInboundQueue } from "./inbound/durable-receive.js";
 import {
+  type InboxOnMessage,
   buildNotifyMessageUpsert,
   getRecordChannelActivityMock,
   installWebMonitorInboxUnitTestHooks,
   mockLoadConfig,
+  mockRecordConversationMessage as history,
   settleInboundWork,
   startInboxMonitor,
   upsertPairingRequestMock,
@@ -656,5 +659,131 @@ describe("web monitor inbox", () => {
     expect(onMessage).not.toHaveBeenCalled();
 
     await listener.close();
+  });
+});
+
+describe("WhatsApp phone messages", () => {
+  installWebMonitorInboxUnitTestHooks();
+  beforeEach(() => {
+    history.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("keeps a phone message pending when the transcript write fails", async () => {
+    history.mockRejectedValue(new Error("transcript unavailable"));
+    const queue = createWhatsAppDurableInboundQueue("default");
+    const onMessage = vi.fn();
+    const { sock, listener } = await startInboxMonitor(onMessage as InboxOnMessage, {
+      durableInboundQueue: queue,
+    });
+    try {
+      const upsert = buildNotifyMessageUpsert({
+        id: "phone-write-failed",
+        remoteJid: "447700900002@s.whatsapp.net",
+        text: "Arrive at noon.",
+        timestamp: 1_700_000_000,
+      });
+      upsert.messages[0]!.key.fromMe = true;
+      sock.ev.emit("messages.upsert", upsert);
+      await waitForInboundWorkDrained();
+      expect(await queue.listPending({ limit: "all" })).toMatchObject([
+        { attempts: 1, lastError: expect.stringContaining("transcript unavailable") },
+      ]);
+      expect(onMessage).not.toHaveBeenCalled();
+    } finally {
+      await listener.close();
+    }
+  });
+
+  it("records stale guest appends without starting a reply", async () => {
+    const onMessage = vi.fn();
+    const { sock, listener } = await startInboxMonitor(onMessage as InboxOnMessage);
+    try {
+      const upsert = buildNotifyMessageUpsert({
+        id: "old-guest-question",
+        remoteJid: "447700900002@s.whatsapp.net",
+        text: "Do you have parking?",
+        timestamp: 1_700_000_000,
+      });
+      upsert.type = "append";
+      sock.ev.emit("messages.upsert", upsert);
+      await waitForInboundWorkDrained();
+      expect(history).toHaveBeenCalledWith(
+        expect.objectContaining({
+          peer: "+447700900002",
+          text: "Do you have parking?",
+          author: "guest",
+        }),
+      );
+      expect(onMessage).not.toHaveBeenCalled();
+      expect(sock.sendMessage).not.toHaveBeenCalled();
+    } finally {
+      await listener.close();
+    }
+  });
+
+  it.each(["notify", "append"])(
+    "records %s phone replies without starting an agent turn",
+    async (type) => {
+      const onMessage = vi.fn();
+      const { sock, listener } = await startInboxMonitor(onMessage as InboxOnMessage);
+      try {
+        const upsert = buildNotifyMessageUpsert({
+          id: "phone-first",
+          remoteJid: "447700900002@s.whatsapp.net",
+          text: "Please arrive at noon.",
+          timestamp: 1_700_000_000,
+        });
+        upsert.type = type;
+        upsert.messages[0]!.key.fromMe = true;
+        sock.ev.emit("messages.upsert", upsert);
+        await waitForInboundWorkDrained();
+        expect(history).toHaveBeenCalledWith(
+          expect.objectContaining({
+            peer: "+447700900002",
+            text: "Please arrive at noon.",
+            author: "phone",
+            messageId: "phone-first",
+            timestampMs: 1_700_000_000_000,
+          }),
+        );
+        sock.ev.emit("messages.upsert", upsert);
+        await waitForInboundWorkDrained();
+        expect(history).toHaveBeenCalledTimes(1);
+        expect(onMessage).not.toHaveBeenCalled();
+        expect(sock.sendMessage).not.toHaveBeenCalled();
+      } finally {
+        await listener.close();
+      }
+    },
+  );
+
+  it("does not treat an agent echo or a reaction as a phone reply", async () => {
+    const onMessage = vi.fn();
+    const { sock, listener } = await startInboxMonitor(onMessage as InboxOnMessage);
+    try {
+      const sent = await listener.sendMessage("+447700900002", "Agent reply");
+      const echo = buildNotifyMessageUpsert({
+        id: sent?.messageId ?? "missing",
+        remoteJid: "447700900002@s.whatsapp.net",
+        text: "Agent reply",
+        timestamp: Date.now() / 1000,
+      });
+      echo.messages[0]!.key.fromMe = true;
+      sock.ev.emit("messages.upsert", echo);
+      sock.ev.emit("messages.upsert", {
+        type: "notify",
+        messages: [
+          {
+            key: { fromMe: true, id: "reaction", remoteJid: "447700900002@s.whatsapp.net" },
+            message: { reactionMessage: { text: "👍", key: { id: "old" } } },
+          },
+        ],
+      });
+      await waitForInboundWorkDrained();
+      expect(history).not.toHaveBeenCalled();
+      expect(onMessage).not.toHaveBeenCalled();
+    } finally {
+      await listener.close();
+    }
   });
 });

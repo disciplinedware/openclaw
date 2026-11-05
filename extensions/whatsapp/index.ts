@@ -3,6 +3,7 @@ import {
   loadBundledEntryExportSync,
 } from "openclaw/plugin-sdk/channel-entry-contract";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/channel-entry-contract";
+import { WHATSAPP_FOR_BUSINESS_PLUGIN_ID } from "./src/plugin-id.js";
 
 function registerWhatsAppAgentTools(api: OpenClawPluginApi): void {
   const registerTool = loadBundledEntryExportSync<(api: OpenClawPluginApi) => void>(
@@ -16,9 +17,10 @@ function registerWhatsAppAgentTools(api: OpenClawPluginApi): void {
 }
 
 export default defineBundledChannelEntry({
-  id: "whatsapp",
-  name: "WhatsApp",
-  description: "WhatsApp channel plugin",
+  id: WHATSAPP_FOR_BUSINESS_PLUGIN_ID,
+  name: "WhatsApp for Business",
+  description:
+    "WhatsApp channel plugin with message approvals that only the owner resolves, a message card and the owner target",
   importMetaUrl: import.meta.url,
   plugin: {
     specifier: "./channel-plugin-api.js",
@@ -28,5 +30,7 @@ export default defineBundledChannelEntry({
     specifier: "./runtime-setter-api.js",
     exportName: "setWhatsAppRuntime",
   },
-  registerFull: registerWhatsAppAgentTools,
+  registerFull(api) {
+    registerWhatsAppAgentTools(api);
+  },
 });

@@ -11,7 +11,7 @@ describe("resolveWhatsAppOutboundTarget", () => {
     expect(resolveWhatsAppOutboundTarget({ to, allowFrom: undefined, mode: undefined })).toEqual({
       ok: false,
       error: expect.objectContaining({
-        message: "Delivering to WhatsApp requires target <E.164|group JID|newsletter JID>",
+        message: "Delivering to WhatsApp requires target <E.164|group JID|newsletter JID|owner>",
       }),
     });
   });
@@ -62,5 +62,50 @@ describe("resolveWhatsAppOutboundTarget", () => {
         mode: undefined,
       }),
     ).toEqual({ ok: true, to: PRIMARY_TARGET });
+  });
+});
+
+describe("resolveWhatsAppOutboundTarget owner", () => {
+  const OWNER = "+15550000200";
+  const cfg = (ownerAllowFrom: string[]) => ({ commands: { ownerAllowFrom } }) as never;
+
+  it.each(["owner", "whatsapp:owner", " Owner "])(
+    "sends %j to the one WhatsApp owner, whatever allowFrom admits",
+    (to) => {
+      expect(
+        resolveWhatsAppOutboundTarget({
+          cfg: cfg([`whatsapp:${OWNER}`, "telegram:123456789"]),
+          to,
+          allowFrom: [PRIMARY_TARGET],
+          mode: "implicit",
+        }),
+      ).toEqual({ ok: true, to: OWNER });
+    },
+  );
+
+  it.each([
+    ["no owner", []],
+    ["two owners", [`whatsapp:${OWNER}`, `whatsapp:${SECONDARY_TARGET}`]],
+  ])("refuses owner with %s, naming no number", (_label, owners) => {
+    const resolution = resolveWhatsAppOutboundTarget({
+      cfg: cfg(owners),
+      to: "owner",
+      allowFrom: ["*"],
+      mode: "implicit",
+    });
+    expect(resolution.ok).toBe(false);
+    expect(resolution.ok ? "" : resolution.error.message).not.toMatch(/\+\d/);
+  });
+});
+
+describe("resolveWhatsAppOutboundTarget Mexican mobiles", () => {
+  it("admits a +521 target when allowFrom lists the person as +52", () => {
+    expect(
+      resolveWhatsAppOutboundTarget({
+        to: "+5219980000102",
+        allowFrom: ["+529980000102"],
+        mode: "implicit",
+      }),
+    ).toEqual({ ok: true, to: "+529980000102" });
   });
 });
