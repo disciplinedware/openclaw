@@ -5,9 +5,22 @@ import {
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { appendSessionTranscriptMessageByIdentityStrict } from "openclaw/plugin-sdk/session-transcript-runtime";
-import { closeWhatsAppMessageCardsAnsweredByBusiness } from "./approval-answered.js";
+import { closeStaleWhatsAppMessageCards } from "./approval-stale-cards.js";
 import { normalizeWhatsAppTarget } from "./normalize-target.js";
 import { getWhatsAppRuntime } from "./runtime.js";
+
+const CUSTOM_TYPE = {
+  phone: "whatsapp.history",
+  agent: "whatsapp.history",
+  guest: "whatsapp.inbound-history",
+  card: "whatsapp.approval-card",
+} as const;
+const AUTHOR_LABEL = {
+  phone: "Business phone",
+  agent: "Business agent",
+  guest: "Guest",
+  card: "Approval card",
+} as const;
 
 export async function recordWhatsAppConversationMessage(params: {
   cfg: OpenClawConfig;
@@ -16,7 +29,8 @@ export async function recordWhatsAppConversationMessage(params: {
   messageId: string;
   text: string;
   timestampMs: number;
-  author: "phone" | "guest" | "agent";
+  /** `card`: an approval card sent to an approver; it enters the approver's own transcript. */
+  author: "phone" | "guest" | "agent" | "card";
   sourceSessionKey?: string;
 }): Promise<void> {
   const peer = normalizeWhatsAppTarget(params.peer);
@@ -63,7 +77,7 @@ export async function recordWhatsAppConversationMessage(params: {
     idempotencyLookup: "scan",
     message: {
       role: "custom",
-      customType: params.author === "guest" ? "whatsapp.inbound-history" : "whatsapp.history",
+      customType: CUSTOM_TYPE[params.author],
       display: true,
       content: [{ type: "text", text: params.text }],
       idempotencyKey,
@@ -79,7 +93,7 @@ export async function recordWhatsAppConversationMessage(params: {
                 channel: "WhatsApp",
                 from: peer,
                 timestamp: params.timestampMs,
-                body: `${params.author === "phone" ? "Business phone" : params.author === "agent" ? "Business agent" : "Guest"}: ${params.text}`,
+                body: `${AUTHOR_LABEL[params.author]}: ${params.text}`,
                 envelope: resolveEnvelopeFormatOptions(cfg),
               }),
             },
@@ -98,8 +112,12 @@ export async function recordWhatsAppConversationMessage(params: {
       `WhatsApp conversation transcript append ${result.kind} for ${route.sessionKey}`,
     );
   }
-  if (params.author !== "guest") {
+  if (params.author === "phone" || params.author === "agent") {
     // The business answered this guest; a card still proposing a reply here is stale.
-    await closeWhatsAppMessageCardsAnsweredByBusiness({ cfg, sessionKey: route.sessionKey });
+    await closeStaleWhatsAppMessageCards({
+      cfg,
+      sessionKey: route.sessionKey,
+      outcome: "answered",
+    });
   }
 }

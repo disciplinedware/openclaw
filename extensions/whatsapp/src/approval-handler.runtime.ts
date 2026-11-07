@@ -10,13 +10,9 @@ import {
   buildApprovalReactionPendingContent,
   type ApprovalReactionPendingContent,
 } from "openclaw/plugin-sdk/approval-reaction-runtime";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { resolveDefaultWhatsAppAccountId } from "./accounts.js";
-import {
-  forgetOpenWhatsAppMessageCard,
-  takeWhatsAppMessageCardAnswered,
-  trackOpenWhatsAppMessageCard,
-} from "./approval-answered.js";
 import {
   buildWhatsAppMessageCard,
   buildWhatsAppMessageCardOutcomeText,
@@ -26,9 +22,17 @@ import {
   registerWhatsAppApprovalReactionTarget,
   unregisterWhatsAppApprovalReactionTarget,
 } from "./approval-reactions.js";
+import {
+  forgetOpenWhatsAppMessageCard,
+  closeStaleWhatsAppMessageCards,
+  takeStaleWhatsAppMessageCardOutcome,
+  trackOpenWhatsAppMessageCard,
+} from "./approval-stale-cards.js";
+import { recordWhatsAppConversationMessage } from "./conversation-history.js";
 import { normalizeWhatsAppMessagingTarget } from "./normalize-target.js";
 import { getWhatsAppRuntime } from "./runtime.js";
 import { editMessageWhatsApp, sendMessageWhatsApp, sendTypingWhatsApp } from "./send.js";
+import { markdownToWhatsApp } from "./targets-runtime.js";
 
 const log = createSubsystemLogger("whatsapp/approvals");
 
@@ -46,8 +50,14 @@ type PendingWhatsAppApprovalEntry = {
   lastPartText: string;
   footer?: string;
   approvalId?: string;
+  /** The recipient's session the card is about, named in the approver's transcript. */
+  conversation?: string;
 };
-type WhatsAppPendingPayload = ApprovalReactionPendingContent & { footer?: string };
+type WhatsAppPendingPayload = ApprovalReactionPendingContent & {
+  footer?: string;
+  supersedes?: string;
+  conversation?: string;
+};
 
 const listCardParts = (entry: PendingWhatsAppApprovalEntry) =>
   entry.messageIds.map((messageId) => ({
@@ -60,6 +70,32 @@ type WhatsAppFinalPayload = {
   /** A message card's outcome line, which replaces the card's footer in place. */
   cardOutcome?: string;
 };
+
+/**
+ * A card, or how it ended, enters the approver's own transcript, so the approver's agent reads
+ * the approver's next message as an answer to it. The card is delivered either way: a failed
+ * write is logged, never reported as a failed card.
+ */
+async function recordCard(
+  cfg: OpenClawConfig,
+  entry: PendingWhatsAppApprovalEntry,
+  messageId: string,
+  text: string,
+): Promise<void> {
+  await recordWhatsAppConversationMessage({
+    cfg,
+    accountId: entry.accountId,
+    peer: entry.to,
+    messageId,
+    text: entry.conversation ? `${text}\n\nConversation: ${entry.conversation}` : text,
+    timestampMs: Date.now(),
+    author: "card",
+  }).catch((error: unknown) => {
+    log.warn(
+      `whatsapp approvals: card ${messageId} is missing from the approver's transcript: ${String(error)}`,
+    );
+  });
+}
 
 export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeAdapter<
   WhatsAppPendingPayload,
@@ -90,6 +126,8 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
           ...content,
           reactionPayload: { ...content.reactionPayload, text: card.text },
           footer: card.footer,
+          ...(card.supersedes ? { supersedes: card.supersedes } : {}),
+          ...(card.conversation ? { conversation: card.conversation } : {}),
         };
       }
       // Nobody approves a message the card cannot show: OpenClaw's own text, with 👎 only.
@@ -111,10 +149,10 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
           payload: { text: buildChannelApprovalResolvedText({ request, resolved, view }) },
         };
       }
-      const answered = takeWhatsAppMessageCardAnswered(request.id);
+      const stale = takeStaleWhatsAppMessageCardOutcome(request.id);
       const text = buildWhatsAppMessageCardOutcomeText(
         cfg,
-        answered && resolved.decision === "deny" ? "answered" : resolved.decision,
+        stale && resolved.decision === "deny" ? stale : resolved.decision,
       );
       return { kind: "update", payload: { text, cardOutcome: text } };
     },
@@ -125,7 +163,7 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
           payload: { text: buildChannelApprovalExpiredText({ request, view }) },
         };
       }
-      takeWhatsAppMessageCardAnswered(request.id);
+      takeStaleWhatsAppMessageCardOutcome(request.id);
       const text = buildWhatsAppMessageCardOutcomeText(cfg, "expired");
       return { kind: "update", payload: { text, cardOutcome: text } };
     },
@@ -172,14 +210,18 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
       if (!result.messageId) {
         return null;
       }
-      return {
+      const entry: PendingWhatsAppApprovalEntry = {
         accountId: preparedTarget.accountId,
         to: preparedTarget.to,
         remoteJid: result.toJid,
         messageIds: parts.length > 0 ? parts.map((part) => part.messageId) : [result.messageId],
-        lastPartText: parts.at(-1)?.text ?? cardText,
-        ...(pendingPayload.footer ? { footer: pendingPayload.footer } : {}),
+        // The edit replaces the text as WhatsApp shows it, with no Markdown pass of its own.
+        lastPartText: parts.at(-1)?.text ?? markdownToWhatsApp(cardText),
+        ...(pendingPayload.footer ? { footer: markdownToWhatsApp(pendingPayload.footer) } : {}),
+        ...(pendingPayload.conversation ? { conversation: pendingPayload.conversation } : {}),
       };
+      await recordCard(cfg, entry, result.messageId, markdownToWhatsApp(cardText));
+      return entry;
     },
     updateEntry: async ({ cfg, entry, payload }) => {
       if (entry.approvalId) {
@@ -199,6 +241,7 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
             cfg,
             accountId: entry.accountId,
           });
+          await recordCard(cfg, entry, `${lastPartId}:outcome`, payload.cardOutcome);
           return;
         } catch (error) {
           log.warn(
@@ -218,10 +261,13 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
           fromMe: true,
         },
       });
+      if (payload.cardOutcome) {
+        await recordCard(cfg, entry, `${lastPartId ?? ""}:outcome`, payload.cardOutcome);
+      }
     },
   },
   interactions: {
-    bindPending: async ({ entry, request, view, pendingPayload }) => {
+    bindPending: async ({ cfg, entry, request, view, pendingPayload }) => {
       if (view.approvalKind === "plugin" && isWhatsAppMessageApproval(request)) {
         entry.approvalId = request.id;
         trackOpenWhatsAppMessageCard({ request });
@@ -237,7 +283,17 @@ export const whatsappApprovalNativeRuntime = createChannelApprovalNativeRuntimeA
           }),
         ),
       );
-      return bound.every(Boolean) ? true : null;
+      if (!bound.every(Boolean)) {
+        return null;
+      }
+      if (pendingPayload.supersedes) {
+        await closeStaleWhatsAppMessageCards({
+          cfg,
+          sessionKey: pendingPayload.supersedes,
+          outcome: "superseded",
+        });
+      }
+      return true;
     },
     unbindPending: async ({ entry }) => {
       await Promise.all(listCardParts(entry).map(unregisterWhatsAppApprovalReactionTarget));

@@ -264,7 +264,11 @@ it("binds every part of a card that arrives in several messages", async () => {
 describe("message card outcome in place", () => {
   const remoteJid = "15551230000@s.whatsapp.net";
 
-  async function deliver(parts: Array<{ messageId: string; text: string }>, footer: string) {
+  async function deliver(
+    parts: Array<{ messageId: string; text: string }>,
+    footer: string,
+    conversation?: string,
+  ) {
     vi.spyOn(await import("./runtime.js"), "getWhatsAppRuntime").mockReturnValue({
       logging: { shouldLogVerbose: () => false },
     } as never);
@@ -290,6 +294,7 @@ describe("message card outcome in place", () => {
           reactionBindings: [],
         },
         footer,
+        conversation,
       },
     } as never);
     send.mockClear();
@@ -302,10 +307,10 @@ describe("message card outcome in place", () => {
       parts: [
         {
           messageId: "card-1",
-          text: "¿Enviar mensaje?\n\nHola\n\n👍 Enviar · 👎 Rechazar · 5 min",
+          text: "**Respuesta:**\n\\> Hola\n\n👍 Enviar · 👎 Rechazar · 5 min",
         },
       ],
-      edited: ["card-1", "¿Enviar mensaje?\n\nHola\n\n✅ Aprobado."],
+      edited: ["card-1", "*Respuesta:*\n> Hola\n\n✅ Aprobado."],
     },
     {
       name: "last_of_three_parts",
@@ -356,6 +361,44 @@ describe("message card outcome in place", () => {
         "⏱️ Caducó sin respuesta.",
         expect.objectContaining({
           quotedMessageKey: { id: "card-1", remoteJid, fromMe: true },
+        }),
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("the_card_and_its_outcome_enter_the_approvers_transcript", async () => {
+    try {
+      const record = vi
+        .spyOn(await import("./conversation-history.js"), "recordWhatsAppConversationMessage")
+        .mockResolvedValue(undefined);
+      const guest = "agent:assistant:whatsapp:default:direct:+447700900002";
+      const { entry } = await deliver(
+        [{ messageId: "card-1", text: "**Respuesta:**\nHola\n\n👍 Enviar · 👎 Rechazar · 5 min" }],
+        "👍 Enviar · 👎 Rechazar · 5 min",
+        guest,
+      );
+      expect(record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          peer: "+15551230000",
+          accountId: "default",
+          messageId: "card-1",
+          author: "card",
+          text: `*Respuesta:*\nHola\n\n👍 Enviar · 👎 Rechazar · 5 min\n\nConversation: ${guest}`,
+        }),
+      );
+      vi.spyOn(await import("./send.js"), "editMessageWhatsApp").mockResolvedValue(undefined);
+      await whatsappApprovalNativeRuntime.transport.updateEntry!({
+        cfg: {},
+        entry,
+        payload: { text: "❌ Rechazado.", cardOutcome: "❌ Rechazado." },
+      } as never);
+      expect(record).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          messageId: "card-1:outcome",
+          author: "card",
+          text: `❌ Rechazado.\n\nConversation: ${guest}`,
         }),
       );
     } finally {

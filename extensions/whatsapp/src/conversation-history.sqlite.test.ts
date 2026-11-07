@@ -23,7 +23,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearWhatsAppMessageCardsForTest,
   trackOpenWhatsAppMessageCard,
-} from "./approval-answered.js";
+} from "./approval-stale-cards.js";
 import { whatsappPlugin } from "./channel.js";
 import { recordWhatsAppConversationMessage } from "./conversation-history.js";
 import { setWhatsAppRuntime } from "./runtime.js";
@@ -107,6 +107,70 @@ describe("WhatsApp business messages in the guest transcript", () => {
           },
         ],
       });
+    });
+  });
+
+  it("a_card_enters_the_approvers_transcript_and_closes_no_card", async () => {
+    await withOpenClawTestState({ prefix: "whatsapp-card-history-" }, async (state) => {
+      const cfg = {
+        session: {
+          store: state.statePath("sessions.json"),
+          dmScope: "per-account-channel-peer" as const,
+        },
+      };
+      setRuntimeConfigSnapshot(cfg);
+      setWhatsAppRuntime({
+        channel: { session: { resolveStorePath, recordSessionMetaFromInbound } },
+      } as unknown as PluginRuntime);
+      const approver = "+447700900001";
+      const route = resolveAgentRoute({
+        cfg,
+        channel: "whatsapp",
+        accountId: "default",
+        peer: { kind: "direct", id: approver },
+      });
+      // A card the approver's own agent proposed stays open while its card is recorded.
+      trackOpenWhatsAppMessageCard({
+        request: { id: "plugin:open", request: { sessionKey: route.sessionKey } },
+      } as Parameters<typeof trackOpenWhatsAppMessageCard>[0]);
+      resolver.resolve.mockClear();
+      await recordWhatsAppConversationMessage({
+        cfg,
+        accountId: "default",
+        peer: approver,
+        messageId: "card-1",
+        text: "*+447700900002*\n> cuanto cuesta el taxi?\n\nConversation: agent:assistant:whatsapp:default:direct:+447700900002",
+        timestampMs: Date.now(),
+        author: "card",
+      });
+      expect(resolver.resolve).not.toHaveBeenCalled();
+      clearWhatsAppMessageCardsForTest();
+      const storePath = resolveStorePath(cfg.session.store, { agentId: route.agentId });
+      const session = await getSessionEntryAsync({
+        agentId: route.agentId,
+        sessionKey: route.sessionKey,
+        storePath,
+      });
+      const entries = await readVisibleSessionTranscriptMessageEntries({
+        agentId: route.agentId,
+        sessionKey: route.sessionKey,
+        sessionId: session!.sessionId!,
+        storePath,
+      });
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.message).toMatchObject({
+        role: "custom",
+        customType: "whatsapp.approval-card",
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("Approval card: *+447700900002*"),
+          },
+        ],
+      });
+      expect(JSON.stringify(entries[0]?.message)).toContain(
+        "Conversation: agent:assistant:whatsapp:default:direct:+447700900002",
+      );
     });
   });
 

@@ -14,6 +14,7 @@ import {
   getSessionEntryAsync,
   loadTranscriptEventsSync,
 } from "openclaw/plugin-sdk/session-store-runtime";
+import { listWhatsAppCommandOwners, normalizeWhatsAppDirectId } from "./command-owner.js";
 import { readWhatsAppPluginConfig } from "./plugin-config.js";
 import { resolveWhatsAppOutboundTarget } from "./resolve-outbound-target.js";
 
@@ -35,9 +36,8 @@ const SHOWN_ARGUMENTS = new Set([
 
 const CARD_TEXT = {
   en: {
-    title: "Send message?",
-    actionTitle: (action: string) => `Message action "${action}"?`,
-    to: "To",
+    reply: "Reply:",
+    actionTitle: (action: string) => `Message action "${action}":`,
     noText: "(no text)",
     send: "Send",
     earlier: (count: number) => `… ${count} earlier ${count === 1 ? "message" : "messages"}`,
@@ -45,9 +45,8 @@ const CARD_TEXT = {
       `You have ${count} ${count === 1 ? "minute" : "minutes"} to answer.`,
   },
   es: {
-    title: "¿Enviar mensaje?",
-    actionTitle: (action: string) => `¿Acción de mensaje "${action}"?`,
-    to: "Para",
+    reply: "Respuesta:",
+    actionTitle: (action: string) => `Acción de mensaje "${action}":`,
     noText: "(sin texto)",
     send: "Enviar",
     earlier: (count: number) =>
@@ -62,8 +61,8 @@ const SPANISH_DECISION_LABELS: Record<ApprovalDecision, string> = {
   deny: "Rechazar",
 };
 
-/** How a card ended: a decision, its expiry, or a business reply to the same guest that made it stale. */
-export type WhatsAppMessageCardOutcome = ApprovalDecision | "expired" | "answered";
+/** How a card ended: a decision, its expiry, a business reply to the same guest, or a newer card. */
+export type WhatsAppMessageCardOutcome = ApprovalDecision | "expired" | "answered" | "superseded";
 
 const OUTCOME_TEXT: Record<ApprovalLanguage, Record<WhatsAppMessageCardOutcome, string>> = {
   en: {
@@ -72,6 +71,7 @@ const OUTCOME_TEXT: Record<ApprovalLanguage, Record<WhatsAppMessageCardOutcome, 
     deny: "❌ Rejected.",
     expired: "⏱️ Expired without an answer.",
     answered: "↪️ Already answered.",
+    superseded: "🔄 Updated below.",
   },
   es: {
     "allow-once": "✅ Aprobado.",
@@ -79,6 +79,7 @@ const OUTCOME_TEXT: Record<ApprovalLanguage, Record<WhatsAppMessageCardOutcome, 
     deny: "❌ Rechazado.",
     expired: "⏱️ Caducó sin respuesta.",
     answered: "↪️ Ya respondido.",
+    superseded: "🔄 Actualizado abajo.",
   },
 };
 
@@ -99,6 +100,8 @@ type ProposedSend = {
   recipient?: string;
   /** The guest's messages after the business's last delivered reply, earliest first. */
   unanswered: { atMs?: number; text: string }[];
+  /** The session of a recipient other than the chat that asks. */
+  recipientSessionKey?: string;
 };
 
 /** Whether a plugin approval asks to run the `message` tool, the only approval with a card. */
@@ -257,6 +260,7 @@ async function readProposedSend(
     typeof pending.arguments.accountId === "string"
       ? pending.arguments.accountId
       : (request.request.turnSourceAccountId ?? undefined);
+  let recipientSessionKey: string | undefined;
   if (recipient !== source || accountId !== (request.request.turnSourceAccountId ?? undefined)) {
     entries = [];
     if (recipient) {
@@ -266,6 +270,7 @@ async function readProposedSend(
         accountId,
         peer: { kind: recipient.endsWith("@g.us") ? "group" : "direct", id: recipient },
       });
+      recipientSessionKey = route.sessionKey;
       const destination = await getSessionEntryAsync({
         agentId: route.agentId,
         sessionKey: route.sessionKey,
@@ -327,7 +332,12 @@ async function readProposedSend(
     }
   }
   unanswered.sort((left, right) => (left.atMs ?? 0) - (right.atMs ?? 0));
-  return { arguments: pending.arguments, recipient, unanswered };
+  return {
+    arguments: pending.arguments,
+    recipient,
+    unanswered,
+    ...(recipientSessionKey ? { recipientSessionKey } : {}),
+  };
 }
 
 /**
@@ -342,11 +352,20 @@ function visible(text: string): string {
   );
 }
 
-function oneLine(value: unknown, maxLength = Number.POSITIVE_INFINITY): string {
-  const line = (typeof value === "string" ? value : JSON.stringify(value))
-    .replace(/\s+/g, " ")
-    .trim();
-  return visible(line.length > maxLength ? `${line.slice(0, maxLength)}…` : line);
+function oneLine(value: unknown): string {
+  return visible(
+    (typeof value === "string" ? value : JSON.stringify(value)).replace(/\s+/g, " ").trim(),
+  );
+}
+
+/** A guest message as quote lines: its own line breaks kept, blank lines dropped, cut to maxLength. */
+function messageLines(text: string, maxLength: number): string[] {
+  const joined = text
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+  return visible(joined.length > maxLength ? `${joined.slice(0, maxLength)}…` : joined).split("\n");
 }
 
 function formatTime(atMs: number | undefined, timeZone: string | undefined): string {
@@ -376,17 +395,25 @@ function buildReactionLine(
 }
 
 /**
- * The card of a `message` approval, as the approver reads it on a phone: the guest's unanswered
- * messages, then the proposed send - recipient, text, every other argument - then the Guardian's
- * question and the reactions that answer, the card's last block (`footer`), which its outcome
- * replaces. Undefined when the transcript does not hold the call.
+ * The card of a `message` approval, as the approver reads it on a phone, in the order of a chat:
+ * who receives it (bold) and the approval's question (for this demo, the Guardian's reservation
+ * line and reason), the recipient's unanswered messages as a WhatsApp quote, the proposed text
+ * and every other argument, then the reactions that answer - the card's last block (`footer`),
+ * which its outcome replaces. The text is Markdown, which the send renders for WhatsApp: `**` is
+ * WhatsApp's bold, and `\> ` is its quote on every line, where a Markdown quote marks only the
+ * first. `supersedes` names the session whose open cards this send replaces; only a send from the
+ * owner's own chat replaces them. `conversation` names
+ * the recipient's session, for the approver's transcript. Undefined when the transcript does not
+ * hold the call.
  */
 export async function buildWhatsAppMessageCard(params: {
   cfg: OpenClawConfig;
   request: PluginApprovalRequest;
   allowedDecisions: readonly ApprovalDecision[];
   nowMs: number;
-}): Promise<{ text: string; footer: string } | undefined> {
+}): Promise<
+  { text: string; footer: string; supersedes?: string; conversation?: string } | undefined
+> {
   const send = await readProposedSend(params.cfg, params.request);
   if (!send) {
     return undefined;
@@ -403,17 +430,18 @@ export async function buildWhatsAppMessageCard(params: {
   const history =
     shown.length > 0
       ? [
-          `📥 ${send.recipient ?? ""}`.trim(),
           ...(earlier > 0 ? [text.earlier(earlier)] : []),
-          ...shown.map((message) =>
-            [
-              formatTime(message.atMs, timeZone),
-              oneLine(message.text, UNANSWERED_MESSAGE_MAX_LENGTH),
-            ]
-              .filter(Boolean)
-              .join(" "),
-          ),
-        ].join("\n")
+          ...shown.flatMap((message) => {
+            const lines = messageLines(message.text, UNANSWERED_MESSAGE_MAX_LENGTH);
+            const time = formatTime(message.atMs, timeZone);
+            if (time) {
+              lines[0] = `${time} ${lines[0]}`;
+            }
+            return lines;
+          }),
+        ]
+          .map((line) => `\\> ${line}`)
+          .join("\n")
       : undefined;
 
   const args = send.arguments;
@@ -432,18 +460,32 @@ export async function buildWhatsAppMessageCard(params: {
 
   const minutesLeft = Math.max(1, Math.ceil((params.request.expiresAtMs - params.nowMs) / 60_000));
   const footer = buildReactionLine(params.allowedDecisions, language, minutesLeft);
-  const cardText = [
-    history,
-    action === "send" ? text.title : text.actionTitle(action),
-    `${text.to}: ${recipients.join(", ")}`,
-    body || (others.length > 0 || action !== "send" ? undefined : text.noText),
-    others.length > 0 ? others.join("\n") : undefined,
+  const header = [
+    recipients.length > 0 ? `**${recipients.join(", ")}**` : undefined,
     params.request.request.description?.trim(),
-    footer,
   ]
     .filter(Boolean)
-    .join("\n\n");
-  return { text: cardText, footer };
+    .join("\n");
+  const proposal = [
+    `**${action === "send" ? text.reply : text.actionTitle(action)}**`,
+    body || (others.length > 0 || action !== "send" ? undefined : text.noText),
+    others.length > 0 ? others.join("\n") : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const cardText = [header, history, proposal, footer].filter(Boolean).join("\n\n");
+  const conversation = send.recipientSessionKey ?? params.request.request.sessionKey ?? undefined;
+  const fromOwner =
+    typeof source === "string" &&
+    listWhatsAppCommandOwners(params.cfg).includes(normalizeWhatsAppDirectId(source) ?? "");
+  return {
+    text: cardText,
+    footer,
+    ...(conversation ? { conversation } : {}),
+    ...(action === "send" && fromOwner && send.recipientSessionKey
+      ? { supersedes: send.recipientSessionKey }
+      : {}),
+  };
 }
 
 /** How a message card ended, in the card's language. */

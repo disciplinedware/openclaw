@@ -10,10 +10,12 @@ Versions follow the upstream OpenClaw version they build on, with OpenClaw's cor
 
 ### Fixed
 
+- An approval card and its outcome enter the approver's own transcript. Before, the card reached the approver's WhatsApp but no transcript, so the approver's agent got the reply to a card it never saw and asked whom it was about.
 - Host-requested sends retain the originating session in delivery hooks. Cross-conversation sends use the native channel action and durable delivery SDK.
 - A message card shows its outcome in place: the plugin edits the card, and its reaction line becomes "Approved", "Rejected", "Expired without an answer" or "Already answered". A reaction on a closed card does nothing, and the card now says so.
-- A business reply to a guest (typed on the business phone, or sent by another agent) refuses that guest's open message cards, so an outdated proposal cannot reach the guest after the host answered.
-- An approval of a `message` action other than `send` (`react`, `edit`, `delete`) names that action on the card instead of "Send message?", so the approver sees what runs.
+- A business reply to a guest (typed on the business phone, or sent by another agent) refuses that guest's open message cards, so an outdated proposal cannot reach the guest after the host answered. A card from the owner's own chat (the owner's agent writing to that guest) refuses them when it appears, and they show "Updated below"; a card from any other chat refuses none.
+- A message card reads in the order of a chat: the recipient in bold with the approval's question, the guest's unanswered messages as a WhatsApp quote, the proposed text under "Reply:", then the reactions. The recipient is named once, not above the history and again under "To".
+- An approval of a `message` action other than `send` (`react`, `edit`, `delete`) names that action on the card instead of "Reply:", so the approver sees what runs.
 - A send from another agent's session enters the recipient's transcript from the plugin's `send` action, after WhatsApp accepts it. The `message_sent` hook that wrote it before never reached the plugin in a live run, so the guest's agent and the approval card took answered questions for unanswered ones.
 
 ### Added

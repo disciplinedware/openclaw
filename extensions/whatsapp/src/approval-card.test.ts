@@ -3,6 +3,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildWhatsAppMessageCard, isWhatsAppMessageApproval } from "./approval-card.js";
 import { acceptsWhatsAppPluginConfig, whatsappPluginEntries } from "./plugin-config.test-helper.js";
+import { markdownToWhatsApp } from "./targets-runtime.js";
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, string>(),
@@ -64,6 +65,7 @@ const cfg = (config: Record<string, unknown> = {}) =>
       list: [{ id: "assistant", default: true }, { id: "host" }],
     },
     session: { dmScope: "per-channel-peer" },
+    commands: { ownerAllowFrom: ["whatsapp:+447700900001"] },
     plugins: whatsappPluginEntries(config),
   }) as OpenClawConfig;
 
@@ -150,8 +152,9 @@ describe("WhatsApp message card", () => {
     ]);
     const text = await card();
     expect(text).not.toContain("Old answered question");
-    expect(text).toContain("10:15 Earlier unanswered question\n10:20 New question");
+    expect(text).toContain("\\> 10:15 Earlier unanswered question\n\\> 10:20 New question");
   });
+
   it("shows at most ten unanswered messages by default", async () => {
     store.entries.set("session-1", [
       ...Array.from({ length: 12 }, (_, i) =>
@@ -179,7 +182,8 @@ describe("WhatsApp message card", () => {
       undefined,
       request({ sessionKey: hostKey, agentId: "host", turnSourceTo: "+447700900001" }),
     );
-    expect(text).toContain(`📥 ${GUEST}\n10:05 Guest question`);
+    expect(String(text).startsWith(`**${GUEST}**\n`)).toBe(true);
+    expect(text).toContain("\n\n\\> 10:05 Guest question\n\n");
     expect(text).not.toContain("Private host instruction");
     store.sessions.delete(SESSION_KEY);
     const firstContact = await card(
@@ -187,7 +191,7 @@ describe("WhatsApp message card", () => {
       request({ sessionKey: hostKey, agentId: "host", turnSourceTo: "+447700900001" }),
     );
     expect(firstContact).toContain("Confirmed");
-    expect(firstContact).not.toContain("📥");
+    expect(firstContact).not.toContain("\\> ");
     expect(firstContact).not.toContain("Private host instruction");
   });
 
@@ -225,43 +229,84 @@ describe("WhatsApp message card", () => {
     expect(text).toContain("New question");
   });
 
-  it("shows the unanswered messages, then exactly the send the approval holds", async () => {
+  it("reads like a chat: who, the question, the quoted messages, then exactly the send", async () => {
     expect(await card({ approvalLanguage: "es" })).toBe(
       [
-        `📥 ${GUEST}\n10:05 ¿Cuánto cuesta una noche más?\n10:12 ¿Hay respuesta?`,
-        "¿Enviar mensaje?",
-        `Para: ${GUEST}`,
-        "Una noche más cuesta 3200 MXN.",
-        "media: https://example.com/rate.pdf",
-        "El asistente pide revisión.",
+        `**${GUEST}**\nEl asistente pide revisión.`,
+        "\\> 10:05 ¿Cuánto cuesta una noche más?\n\\> 10:12 ¿Hay respuesta?",
+        "**Respuesta:**\nUna noche más cuesta 3200 MXN.\nmedia: https://example.com/rate.pdf",
         "👍 Enviar · 👎 Rechazar · 5 min",
       ].join("\n\n"),
     );
+  });
+
+  it("quotes every line of a guest message and drops its blank lines", async () => {
+    store.entries.set("session-1", [
+      user(`${"palabra ".repeat(30)}\n\n  fin  `, "2026-11-04T10:05:00.000Z"),
+      call("call-pending", "message", { target: GUEST, message: "Hola" }),
+    ]);
+    const quoted = String(await card()).split("\n\n")[1];
+    expect(quoted).toBe(`\\> 10:05 ${"palabra ".repeat(30).trim()}\n\\> fin`);
+  });
+
+  it("reaches_whatsapp_with_a_quote_on_every_line_and_bold", async () => {
+    const shown = markdownToWhatsApp(String(await card({ approvalLanguage: "es" })));
+    expect(shown).toContain(`*${GUEST}*\n`);
+    expect(shown).toContain(
+      "\n\n> 10:05 ¿Cuánto cuesta una noche más?\n> 10:12 ¿Hay respuesta?\n\n",
+    );
+    expect(shown).toContain("\n\n*Respuesta:*\n");
+  });
+
+  it("names_the_session_a_send_to_another_chat_supersedes", async () => {
+    const hostKey = "agent:host:whatsapp:direct:+447700900001";
+    store.sessions.set(hostKey, "host-session");
+    store.entries.set("host-session", [
+      call("call-pending", "message", { target: GUEST, message: "Hola" }),
+    ]);
+    const fromHost = await cardWithFooter(
+      undefined,
+      request({ sessionKey: hostKey, agentId: "host", turnSourceTo: "+447700900001" }),
+    );
+    expect(fromHost?.supersedes).toBeTruthy();
+    expect((await cardWithFooter())?.supersedes).toBeUndefined();
+  });
+
+  it("a_guest_chats_send_to_the_owner_supersedes_no_card", async () => {
+    store.entries.set("session-1", [
+      call("call-pending", "message", {
+        target: "+447700900001",
+        message: "Una pregunta para el anfitrión",
+      }),
+    ]);
+    const toOwner = await cardWithFooter();
+    expect(toOwner?.conversation).toContain("+447700900001");
+    expect(toOwner?.supersedes).toBeUndefined();
   });
 
   it("names the target the call sends to, not the chat it came from", async () => {
     store.entries.set("session-1", [
       call("call-pending", "message", { target: "owner", message: "Hola" }),
     ]);
-    expect(await card()).toContain("To: owner");
+    expect(await card()).toContain("**owner**");
   });
 
   it("shows the newest messages up to the limit and counts the earlier ones", async () => {
     const text = await card({ approvalLanguage: "es", approvalUnansweredMessageLimit: 1 });
-    expect(text).toContain(`📥 ${GUEST}\n… 1 mensaje anterior\n10:12 ¿Hay respuesta?`);
+    expect(text).toContain("\\> … 1 mensaje anterior\n\\> 10:12 ¿Hay respuesta?");
   });
 
   it.each([
-    ["en", 'Message action "react"?\n\nTo: +15550000300\n\nemoji: 👍'],
-    ["es", '¿Acción de mensaje "react"?\n\nPara: +15550000300\n\nemoji: 👍'],
+    ["en", '**Message action "react":**\nemoji: 👍'],
+    ["es", '**Acción de mensaje "react":**\nemoji: 👍'],
   ])("names_an_action_other_than_send_%s", async (approvalLanguage, expected) => {
     store.entries.set("session-1", [
       call("call-pending", "message", { action: "react", emoji: "👍", messageId: "m-1" }),
     ]);
     const text = await card({ approvalLanguage });
     expect(text).toContain(expected);
-    expect(text).not.toContain("Send message?");
-    expect(text).not.toContain("¿Enviar mensaje?");
+    expect(text).not.toContain("Reply:");
+    expect(text).not.toContain("Respuesta:");
   });
 
   it.each([
@@ -275,7 +320,9 @@ describe("WhatsApp message card", () => {
 
   it("says when the send carries no text", async () => {
     store.entries.set("session-1", [call("call-pending", "message", { action: "send" })]);
-    expect(await card()).toContain("Send message?\n\nTo: +15550000300\n\n(no text)");
+    const text = String(await card());
+    expect(text.startsWith("**+15550000300**\n")).toBe(true);
+    expect(text).toContain("\n\n**Reply:**\n(no text)\n\n");
   });
 
   it.each([

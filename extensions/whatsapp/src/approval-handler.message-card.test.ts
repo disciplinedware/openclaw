@@ -73,7 +73,7 @@ describe("WhatsApp message approval card", () => {
     ];
     const payload = await pendingMessageCard();
 
-    expect(payload.reactionPayload.text).toContain("Send message?");
+    expect(payload.reactionPayload.text).toContain("**Reply:**");
     expect(payload.reactionPayload.text).toContain("Hola");
     expect(payload.reactionPayload.allowedDecisions).toEqual(["allow-once", "deny"]);
   });

@@ -7,8 +7,11 @@ const log = createSubsystemLogger("whatsapp/approvals");
 
 /** Open message cards by approval id: the session whose agent proposed the message. */
 const openCards = new Map<string, { sessionKey: string; accountId?: string }>();
-/** Cards this plugin closed because the business answered the same guest. */
-const answered = new Set<string>();
+/** Cards this plugin closed as stale, and the outcome each shows. */
+const closed = new Map<string, WhatsAppMessageCardStaleOutcome>();
+
+/** Why a card went stale: the business answered the guest, or a newer card replaced it. */
+export type WhatsAppMessageCardStaleOutcome = "answered" | "superseded";
 
 export function trackOpenWhatsAppMessageCard(params: { request: PluginApprovalRequest }): void {
   const { sessionKey, turnSourceAccountId } = params.request.request;
@@ -24,19 +27,25 @@ export function forgetOpenWhatsAppMessageCard(approvalId: string): void {
   openCards.delete(approvalId);
 }
 
-/** Whether this plugin closed the card for a business reply; asking clears the mark. */
-export function takeWhatsAppMessageCardAnswered(approvalId: string): boolean {
-  return answered.delete(approvalId);
+/** The outcome of a card this plugin closed as stale; asking clears the mark. */
+export function takeStaleWhatsAppMessageCardOutcome(
+  approvalId: string,
+): WhatsAppMessageCardStaleOutcome | undefined {
+  const outcome = closed.get(approvalId);
+  closed.delete(approvalId);
+  return outcome;
 }
 
 /**
- * The business answered a guest (the host typed it, or the host's agent sent it): every open card
- * that proposes a reply in that guest's session is stale, so it is refused and shows "answered".
- * The owner refuses it, as the owner's own reply made it stale.
+ * Every open card that proposes a reply in this guest's session is stale when the business answered
+ * the guest (the host typed it, or the host's agent sent it) or a card of the host's agent for the
+ * same guest appeared. It is refused and shows the outcome. The owner refuses it, as the owner's
+ * own reply or request made it stale.
  */
-export async function closeWhatsAppMessageCardsAnsweredByBusiness(params: {
+export async function closeStaleWhatsAppMessageCards(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
+  outcome: WhatsAppMessageCardStaleOutcome;
 }): Promise<void> {
   const stale = [...openCards].filter(([, card]) => card.sessionKey === params.sessionKey);
   if (stale.length === 0) {
@@ -59,7 +68,7 @@ export async function closeWhatsAppMessageCardsAnsweredByBusiness(params: {
     return;
   }
   for (const [approvalId, card] of stale) {
-    answered.add(approvalId);
+    closed.set(approvalId, params.outcome);
     try {
       await resolveApprovalOverGateway({
         cfg: params.cfg,
@@ -71,9 +80,9 @@ export async function closeWhatsAppMessageCardsAnsweredByBusiness(params: {
         senderId: owner,
       });
     } catch (error) {
-      answered.delete(approvalId);
+      closed.delete(approvalId);
       log.warn(
-        `whatsapp approvals: card ${approvalId} stays open after a business reply in ${params.sessionKey}: ${String(error)}`,
+        `whatsapp approvals: stale card ${approvalId} stays open in ${params.sessionKey} (${params.outcome}): ${String(error)}`,
       );
     }
   }
@@ -81,5 +90,5 @@ export async function closeWhatsAppMessageCardsAnsweredByBusiness(params: {
 
 export function clearWhatsAppMessageCardsForTest(): void {
   openCards.clear();
-  answered.clear();
+  closed.clear();
 }
